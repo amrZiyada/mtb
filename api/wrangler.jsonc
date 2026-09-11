@@ -1,0 +1,8 @@
+{
+  "name":"medical-booking-api",
+  "main":"src/index.ts",
+  "compatibility_date":"2026-09-10",
+  "compatibility_flags":["nodejs_compat"],
+  "vars":{"WEB_ORIGIN":"https://YOUR-FRONTEND.pages.dev"},
+  "d1_databases":[{"binding":"DB","database_name":"medical-booking","database_id":"REPLACE_ME"}]
+}

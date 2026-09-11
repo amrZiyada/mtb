@@ -1,0 +1,71 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: Version increment
+        required: true
+        default: patch
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Bump version
+        run: |
+          npm version "${{ inputs.bump }}" --no-git-tag-version
+          node scripts/sync-version.mjs
+
+      - name: Update changelog
+        shell: bash
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          DATE=$(date -u +%Y-%m-%d)
+          TMP=$(mktemp)
+          {
+            echo "# Changelog"
+            echo
+            echo "All notable changes to this project are documented here."
+            echo
+            echo "## [$VERSION] - $DATE"
+            echo
+            echo "### Changed"
+            echo "- Version $VERSION release."
+            echo
+            tail -n +5 CHANGELOG.md
+          } > "$TMP"
+          mv "$TMP" CHANGELOG.md
+
+      - name: Commit and tag
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package.json VERSION web/lib/version.ts CHANGELOG.md
+          git commit -m "chore(release): v$VERSION"
+          git tag "v$VERSION"
+          git push origin main --follow-tags
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          gh release create "v$VERSION" --generate-notes --title "v$VERSION"
