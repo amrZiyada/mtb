@@ -1,0 +1,17 @@
+{
+  "name": "mtb-api",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-09-10",
+  "compatibility_flags": ["nodejs_compat"],
+  "vars": {
+    "WEB_ORIGIN": "https://bookinglab.pages.dev"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "mtb",
+      "database_id": "3230ac38-121e-4a4f-98f4-6b297496c68b",
+      "remote": true
+    }
+  ]
+}
