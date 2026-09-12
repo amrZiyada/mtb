@@ -96,7 +96,7 @@ export default function Home(){
       <header className="bg-slate-900 text-white">
         <div className="mx-auto max-w-6xl px-4 py-7">
           <h1 className="text-2xl font-bold">
-            Medical Test Booking
+            Booking Lab by Amr Ziyada
           </h1>
 
           <p className="mt-1 text-slate-300">
