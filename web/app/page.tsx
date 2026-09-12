@@ -5,7 +5,7 @@ import {APP_VERSION} from '../lib/version'
 type Test={test_no:string;analysis_name:string;unit:string;ref_range:string;specimen:string;duration:number;price:number;contract_price:number;patient_price:number}
 type Cart=Record<string,number>
 export default function Home(){
- const [tests,setTests]=useState<Test[]>([]),[q,setQ]=useState(''),[specimen,setSpecimen]=useState(''),[cart,setCart]=useState<Cart>({}),[open,setOpen]=useState(false),[done,setDone]=useState<any>(null),[loading,setLoading]=useState(true),[err,setErr]=useState('')
+ const [tests,setTests]=useState<Test[]>([]),[q,setQ]=useState(''),[specimen,setSpecimen]=useState(''),const [query, setQuery] = useState(''),[cart,setCart]=useState<Cart>({}),[open,setOpen]=useState(false),[done,setDone]=useState<any>(null),[loading,setLoading]=useState(true),[err,setErr]=useState('')
  const [form,setForm]=useState({patient_name:'',age:'',gender:'',phone:'',preferred_at:'',address:''})
  useEffect(()=>{api<{tests:Test[]}>('/tests').then(x=>setTests(x.tests)).catch(e=>setErr(e.message)).finally(()=>setLoading(false))},[])
  const specimens=useMemo(()=>Array.from(new Set(tests.map(x=>x.specimen).filter(Boolean))).sort(),[tests])
