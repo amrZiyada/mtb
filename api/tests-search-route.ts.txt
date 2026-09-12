@@ -1,0 +1,39 @@
+// Apply this change to the existing GET /tests route in api/src/index.ts.
+// The public catalogue is now server-side searched and capped at 50 results.
+
+app.get('/tests', async c => {
+  const q = String(c.req.query('q') || '').trim().toLowerCase()
+
+  // Do not expose/load the entire catalogue when there is no search term.
+  if (!q) return c.json({ tests: [] })
+
+  const like = `%${q}%`
+  const rows = await c.env.DB.prepare(`
+    SELECT test_no, analysis_name, unit, ref_range, specimen, duration,
+           price, contract_price, patient_price
+    FROM tests
+    WHERE active=1
+      AND (
+        LOWER(analysis_name) LIKE ? OR
+        LOWER(test_no) LIKE ? OR
+        LOWER(unit) LIKE ? OR
+        LOWER(ref_range) LIKE ? OR
+        LOWER(specimen) LIKE ?
+      )
+    ORDER BY
+      CASE
+        WHEN LOWER(test_no)=? THEN 0
+        WHEN LOWER(analysis_name)=? THEN 1
+        WHEN LOWER(test_no) LIKE ? THEN 2
+        WHEN LOWER(analysis_name) LIKE ? THEN 3
+        ELSE 4
+      END,
+      analysis_name ASC
+    LIMIT 50
+  `).bind(
+    like, like, like, like, like,
+    q, q, `${q}%`, `${q}%`
+  ).all()
+
+  return c.json({ tests: rows.results || [] })
+})
