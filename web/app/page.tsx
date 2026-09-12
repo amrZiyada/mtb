@@ -95,7 +95,7 @@ export default function Home(){
     }
   }
 
-  const SearchBox=()=> (
+  const searchBox = (
     <div className="rounded-2xl border bg-white p-3 shadow-sm">
       <div className="grid gap-3 sm:grid-cols-[1fr_200px]">
         <input
@@ -184,7 +184,7 @@ export default function Home(){
       <div className="mx-auto max-w-6xl px-4 py-4 sm:py-6">
         <div className="lg:hidden">
           <div className="sticky top-0 z-40 -mx-4 space-y-3 border-b bg-slate-50/95 px-4 py-3 backdrop-blur">
-            <SearchBox />
+            {searchBox}
             <CartBox mobile />
           </div>
         </div>
@@ -192,7 +192,7 @@ export default function Home(){
         <div className="grid gap-6 lg:grid-cols-[1fr_330px]">
           <section>
             <div className="hidden lg:block lg:sticky lg:top-0 lg:z-20">
-              <SearchBox />
+              {searchBox}
             </div>
 
             {err&&<div className="mt-4 rounded-xl bg-red-50 p-3 text-sm text-red-700">{err}</div>}
