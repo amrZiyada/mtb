@@ -7,27 +7,14 @@ const app = new Hono<Env>()
 
 app.use('*', async (c, next) => {
   const origin = c.req.header('Origin') || ''
-
-  const allowedOrigins = [
-    c.env.WEB_ORIGIN,
-    'http://localhost:3000',
-    'http://127.0.0.1:3000'
-  ]
-
-  if (origin && allowedOrigins.includes(origin)) {
-    c.header('Access-Control-Allow-Origin', origin)
-  }
-
+  if (origin && origin === c.env.WEB_ORIGIN) c.header('Access-Control-Allow-Origin', origin)
   c.header('Access-Control-Allow-Credentials', 'true')
   c.header('Access-Control-Allow-Headers', 'Content-Type, Authorization')
   c.header('Access-Control-Allow-Methods', 'GET,POST,DELETE,OPTIONS')
-
-  if (c.req.method === 'OPTIONS') {
-    return c.body(null, 204)
-  }
-
+  if (c.req.method === 'OPTIONS') return c.body(null, 204)
   await next()
 })
+
 function digest(value: string) { return createHash('sha256').update(value).digest('hex') }
 function sessionToken(secret: string) {
   const exp = Math.floor(Date.now() / 1000) + 60 * 60 * 8
@@ -59,11 +46,38 @@ async function ensureAdminTable(db: D1Database) {
 }
 
 app.get('/tests', async c => {
+  const q = String(c.req.query('q') || '').trim().toLowerCase()
+  if (!q) return c.json({ tests: [] })
+
+  const like = `%${q}%`
   const { results } = await c.env.DB.prepare(`
-    SELECT test_no, analysis_name, unit, ref_range, specimen, duration, price, contract_price, patient_price
-    FROM tests WHERE active=1 ORDER BY analysis_name COLLATE NOCASE
-  `).all()
-  return c.json({ tests: results })
+    SELECT test_no, analysis_name, unit, ref_range, specimen, duration,
+           price, contract_price, patient_price
+    FROM tests
+    WHERE active=1
+      AND (
+        LOWER(analysis_name) LIKE ? OR
+        LOWER(test_no) LIKE ? OR
+        LOWER(unit) LIKE ? OR
+        LOWER(ref_range) LIKE ? OR
+        LOWER(specimen) LIKE ?
+      )
+    ORDER BY
+      CASE
+        WHEN LOWER(test_no)=? THEN 0
+        WHEN LOWER(analysis_name)=? THEN 1
+        WHEN LOWER(test_no) LIKE ? THEN 2
+        WHEN LOWER(analysis_name) LIKE ? THEN 3
+        ELSE 4
+      END,
+      analysis_name ASC
+    LIMIT 5
+  `).bind(
+    like, like, like, like, like,
+    q, q, `${q}%`, `${q}%`
+  ).all()
+
+  return c.json({ tests: results || [] })
 })
 
 app.post('/bookings', async c => {
@@ -76,7 +90,7 @@ app.post('/bookings', async c => {
   const { results } = await c.env.DB.prepare(`SELECT test_no, analysis_name, specimen, patient_price FROM tests WHERE active=1 AND test_no IN (${placeholders})`).bind(...codes).all()
   if (!results.length) return c.json({ error: 'No valid tests selected' }, 400)
   const byCode = new Map(results.map((r: any) => [String(r.test_no), r]))
-  const selected = codes.map(code => byCode.get(code)).filter(Boolean)
+  const selected = codes.map((code: string) => byCode.get(code)).filter(Boolean)
   const total = selected.reduce((sum: number, t: any) => sum + Number(t.patient_price || 0), 0)
   const reference = 'LAB-' + Date.now().toString(36).toUpperCase() + '-' + randomBytes(3).toString('hex').toUpperCase()
 
@@ -107,7 +121,9 @@ app.post('/admin/login', async c => {
 
 app.get('/admin/bookings', async c => {
   if (!authed(c)) return c.json({ error: 'Unauthorized' }, 401)
-  const { results } = await c.env.DB.prepare('SELECT * FROM bookings ORDER BY created_at DESC LIMIT 500').all()
+  const { results } = await c.env.DB.prepare(`SELECT * FROM bookings
+    ORDER BY CASE WHEN preferred_at IS NULL OR preferred_at='' THEN 1 ELSE 0 END, preferred_at ASC, created_at DESC
+    LIMIT 500`).all()
   return c.json({ bookings: results })
 })
 
