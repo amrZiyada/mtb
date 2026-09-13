@@ -1,6 +1,6 @@
 import { Hono } from 'hono'
 import { getCookie, setCookie } from 'hono/cookie'
-import { createHash, createHmac, randomBytes } from 'node:crypto'
+import { createHash, createHmac } from 'node:crypto'
 
 type Env = { Bindings: { DB: D1Database; ADMIN_PASSWORD_HASH: string; SESSION_SECRET: string; WEB_ORIGIN: string } }
 const app = new Hono<Env>()
@@ -92,7 +92,12 @@ app.post('/bookings', async c => {
   const byCode = new Map(results.map((r: any) => [String(r.test_no), r]))
   const selected = codes.map((code: string) => byCode.get(code)).filter(Boolean)
   const total = selected.reduce((sum: number, t: any) => sum + Number(t.patient_price || 0), 0)
-  const reference = 'LAB-' + Date.now().toString(36).toUpperCase() + '-' + randomBytes(3).toString('hex').toUpperCase()
+  const randomHex = Array.from(crypto.getRandomValues(new Uint8Array(3)))
+  .map(b => b.toString(16).padStart(2, '0'))
+  .join('')
+  .toUpperCase()
+
+const reference = 'LAB-' + Date.now().toString(36).toUpperCase() + '-' + randomHex
 
   await c.env.DB.prepare(`INSERT INTO bookings(reference,patient_name,age,gender,phone,preferred_at,address,tests_json,total)
     VALUES(?,?,?,?,?,?,?,?,?)`).bind(
@@ -138,11 +143,35 @@ app.delete('/admin/bookings/:reference', async c => {
 
 app.get('/admin/tests', async c => {
   if (!authed(c)) return c.json({ error: 'Unauthorized' }, 401)
+  const q = String(c.req.query('q') || '').trim().toLowerCase()
+  if (!q) return c.json({ tests: [] })
+
+  const like = `%${q}%`
   const { results } = await c.env.DB.prepare(`
     SELECT test_no, analysis_name, unit, specimen, patient_price, active
-    FROM tests ORDER BY analysis_name COLLATE NOCASE
-  `).all()
-  return c.json({ tests: results })
+    FROM tests
+    WHERE active=1
+      AND (
+        LOWER(test_no) LIKE ? OR
+        LOWER(analysis_name) LIKE ? OR
+        LOWER(unit) LIKE ? OR
+        LOWER(specimen) LIKE ?
+      )
+    ORDER BY
+      CASE
+        WHEN LOWER(test_no)=? THEN 0
+        WHEN LOWER(analysis_name)=? THEN 1
+        WHEN LOWER(test_no) LIKE ? THEN 2
+        WHEN LOWER(analysis_name) LIKE ? THEN 3
+        ELSE 4
+      END,
+      analysis_name ASC
+    LIMIT 5
+  `).bind(
+    like, like, like, like,
+    q, q, `${q}%`, `${q}%`
+  ).all()
+  return c.json({ tests: results || [] })
 })
 
 app.post('/admin/tests/price', async c => {

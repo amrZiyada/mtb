@@ -1,103 +1,123 @@
 'use client'
-import { useEffect, useMemo, useState } from 'react'
-import * as XLSX from 'xlsx'
-import { api } from '../lib/api'
-import { APP_VERSION } from '../lib/version'
+import {useEffect,useMemo,useRef,useState} from 'react'
+import {api} from '../lib/api'
+import {APP_VERSION} from '../lib/version'
 
-const sourceHeaders = ['#', 'Analysis name', 'Unit', 'Ref. range', 'Specimen', 'Duration', 'Price', 'Contract', 'Patient']
-const requiredHeaders = ['#', 'Analysis name', 'Unit', 'Ref. range', 'Specimen', 'Duration', 'Price']
-const textColumns = ['Unit', 'Ref. range', 'Specimen']
-const keyMap:any = {'#':'test_no','Analysis name':'analysis_name','Unit':'unit','Ref. range':'ref_range','Specimen':'specimen','Duration':'duration','Price':'price','Contract':'contract_price','Patient':'patient_price'}
+type Test={test_no:string;analysis_name:string;unit:string;ref_range:string;specimen:string;duration:number;price:number;contract_price:number;patient_price:number}
+type Cart=Record<string,number>
+type TestMap=Record<string,Test>
 
-function cell(row:any[], index:number) { const v=row[index]; return v===null||v===undefined?'':String(v).trim() }
-function numberValue(value:any) { if(typeof value==='number') return value; const text=String(value??'').trim().replace(/,/g,''); if(!text)return NaN; const n=Number(text); return Number.isFinite(n)?n:NaN }
-function appendText(current:string,next:string){if(!next)return current;if(!current)return next;return current.includes(next)?current:`${current}\n${next}`}
-function parseLaboratoryPriceList(ws:XLSX.WorkSheet){
- const matrix=XLSX.utils.sheet_to_json<any[]>(ws,{header:1,defval:'',raw:true,blankrows:true})
- const headerIndex=matrix.findIndex(row=>requiredHeaders.every(header=>row.some((v:any)=>String(v??'').trim()===header)))
- if(headerIndex<0) throw new Error(`Could not find the approved price-list header: ${requiredHeaders.join(' Â· ')}`)
- const header=matrix[headerIndex]; const columns:any={}
- for(const name of requiredHeaders) columns[name]=header.findIndex((v:any)=>String(v??'').trim()===name)
- columns['Contract']=header.findIndex((v:any)=>String(v??'').trim()==='Contract'); columns['Patient']=header.findIndex((v:any)=>String(v??'').trim()==='Patient')
- const hasPatient=columns['Patient']>=0; const normalized:any[]=[]; let current:any=null
- for(let i=headerIndex+1;i<matrix.length;i++){
-   const row=matrix[i]; if(!row.some((v:any)=>String(v??'').trim()!==''))continue
-   const analysisName=cell(row,columns['Analysis name']); const testNo=cell(row,columns['#']); const duration=numberValue(row[columns['Duration']]); const price=numberValue(row[columns['Price']]); const contract=columns['Contract']>=0?numberValue(row[columns['Contract']]):NaN; const patient=hasPatient?numberValue(row[columns['Patient']]):price
-   const hasNumericTestData=[duration,price,contract,patient].some(Number.isFinite)
-   if(analysisName&&(testNo||hasNumericTestData)){ current={test_no:testNo||`AUTO-${i+1}`,analysis_name:analysisName,unit:cell(row,columns['Unit']),ref_range:cell(row,columns['Ref. range']),specimen:cell(row,columns['Specimen']),duration:Number.isFinite(duration)?duration:0,price:Number.isFinite(price)?price:(Number.isFinite(patient)?patient:0),contract_price:Number.isFinite(contract)?contract:0,patient_price:Number.isFinite(patient)?patient:price,_row:i+1}; normalized.push(current); continue }
-   if(current){ if(analysisName)current.analysis_name=appendText(current.analysis_name,analysisName); for(const name of textColumns){const next=cell(row,columns[name]);if(next)current[keyMap[name]]=appendText(current[keyMap[name]],next)} }
- }
- return {tests:normalized,legacyEightColumn:!hasPatient}
+function SearchBox({q,setQ,searchRef,onEnter}:{q:string;setQ:(v:string)=>void;searchRef:React.RefObject<HTMLInputElement|null>;onEnter:()=>void}){
+  return <div className="rounded-2xl border bg-white p-3 shadow-sm">
+    <input ref={searchRef} autoComplete="off" inputMode="search" value={q}
+      onChange={e=>setQ(e.target.value)}
+      onKeyDown={e=>{if(e.key==='Enter'&&!e.nativeEvent.isComposing){e.preventDefault();onEnter()}}}
+      placeholder="Search test, specimen, unit or reference range…"
+      className="w-full rounded-xl border px-4 py-3 outline-none focus:ring-2 focus:ring-slate-300" />
+  </div>
 }
 
-type CatalogTest={test_no:string;analysis_name:string;unit:string;specimen:string;patient_price:number;active:number}
-type Booking={reference:string;created_at:string;patient_name:string;age:number|null;gender:string|null;phone:string;preferred_at:string|null;address:string|null;tests_json:string;total:number;status?:string|null}
+function CartBox({selected,cart,total,addTest,removeTest,onReserve}:{selected:Test[];cart:Cart;total:number;addTest:(t:Test)=>void;removeTest:(n:string)=>void;onReserve:()=>void}){
+  const count=selected.reduce((n,t)=>n+(cart[t.test_no]||0),0)
+  return <div className="rounded-2xl border bg-white p-4 shadow-sm">
+    <div className="flex items-center justify-between">
+      <h2 className="font-bold">Reservation</h2>
+      {count>0&&<span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold">{count} test{count===1?'':'s'}</span>}
+    </div>
+    {selected.length>0 ? <>
+      <div className="mt-3 max-h-52 space-y-2 overflow-auto">
+        {selected.map(t=><div className="flex items-center justify-between gap-3 text-sm" key={t.test_no}>
+          <div className="min-w-0 flex-1"><div dir="auto" className="truncate font-medium">{t.analysis_name}</div><div className="text-xs text-slate-500">{cart[t.test_no]} × {t.patient_price} EGP</div></div>
+          <div className="flex shrink-0 items-center gap-1.5">
+            <button type="button" aria-label={`Remove ${t.analysis_name}`} onClick={()=>removeTest(t.test_no)} className="h-7 w-7 rounded-lg border">−</button>
+            <span className="w-5 text-center">{cart[t.test_no]}</span>
+            <button type="button" aria-label={`Add ${t.analysis_name}`} onClick={()=>addTest(t)} className="h-7 w-7 rounded-lg border">+</button>
+          </div>
+        </div>)}
+      </div>
+      <div className="my-3 flex justify-between border-t pt-3 font-bold"><span>Total</span><span>{total} EGP</span></div>
+      <button type="button" onClick={onReserve} className="w-full rounded-xl bg-slate-900 px-4 py-3 font-semibold text-white">Reserve</button>
+    </> : <div className="mt-2 text-sm text-slate-500">No tests added yet.</div>}
+  </div>
+}
 
-function formatDate(value:any){
- if(!value)return 'Not specified'
- const d=new Date(String(value))
- if(Number.isNaN(d.getTime())) return String(value)
- return d.toLocaleString([], {year:'numeric',month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})
-}
-function preferredTime(value:any){
- if(!value)return null
- const d=new Date(String(value)); return Number.isNaN(d.getTime())?null:d.getTime()
-}
-function bookingTests(b:Booking){
- try { const x=JSON.parse(b.tests_json||'[]'); return Array.isArray(x)?x:[] } catch { return [] }
-}
+export default function Home(){
+  const [tests,setTests]=useState<Test[]>([])
+  const [catalog,setCatalog]=useState<TestMap>({})
+  const [q,setQ]=useState('')
+  const [cart,setCart]=useState<Cart>({})
+  const [open,setOpen]=useState(false)
+  const [done,setDone]=useState<any>(null)
+  const [loading,setLoading]=useState(false)
+  const [err,setErr]=useState('')
+  const searchRef=useRef<HTMLInputElement|null>(null)
+  const requestId=useRef(0)
+  const [form,setForm]=useState({patient_name:'',age:'',gender:'',phone:'',preferred_at:'',address:''})
 
-export default function Admin(){
- const [password,setPassword]=useState(''),[logged,setLogged]=useState(false),[rows,setRows]=useState<any[]>([]),[bookings,setBookings]=useState<Booking[]>([]),[catalog,setCatalog]=useState<CatalogTest[]>([]),[msg,setMsg]=useState(''),[catalogQuery,setCatalogQuery]=useState(''),[currentPassword,setCurrentPassword]=useState(''),[newPassword,setNewPassword]=useState(''),[busy,setBusy]=useState(false),[selectedBooking,setSelectedBooking]=useState<Booking|null>(null),[bookingView,setBookingView]=useState<'upcoming'|'all'|'past'>('upcoming'),[bookingQuery,setBookingQuery]=useState('')
- async function login(){try{const x=await api<any>('/admin/login',{method:'POST',body:JSON.stringify({password})});if(x.token)localStorage.setItem('mtb_admin_token',x.token);setLogged(true);setMsg('Authenticated')}catch(e:any){setMsg(e.message)}}
- function logout(){localStorage.removeItem('mtb_admin_token');setLogged(false);setPassword('');setMsg('Logged out')}
- async function loadBookings(){try{const x=await api<any>('/admin/bookings');setBookings(Array.isArray(x.bookings)?x.bookings:[])}catch(e:any){if(String(e.message)==='Unauthorized')logout();else setMsg(e.message)}}
- async function loadCatalog(){try{const x=await api<any>('/admin/tests');setCatalog(x.tests)}catch(e:any){if(String(e.message)==='Unauthorized')logout();else setMsg(e.message)}}
- useEffect(()=>{if(logged){loadBookings();loadCatalog()}},[logged])
- useEffect(()=>{const token=typeof window!=='undefined'?localStorage.getItem('mtb_admin_token'):null;if(token)setLogged(true)},[])
- async function parse(file:File){try{const wb=XLSX.read(await file.arrayBuffer(),{type:'array',cellDates:false});const ws=wb.Sheets[wb.SheetNames[0]];const parsed=parseLaboratoryPriceList(ws);const normalized=parsed.tests;if(!normalized.length){setMsg('No laboratory tests were found after the approved price-list header.');setRows([]);return}const invalid=normalized.find(r=>!r.analysis_name||!Number.isFinite(r.patient_price));if(invalid){setMsg(`Invalid row ${invalid._row}: Analysis name and Price are required.`);setRows([]);return}setRows(normalized);setMsg(`${normalized.length} tests loaded from ${file.name}${parsed.legacyEightColumn?' â approved 8-column format detected; Price is used as the patient price.':''}`)}catch(e:any){setMsg(e?.message||'Could not read this Excel/CSV file.');setRows([])}}
- async function publish(){try{setBusy(true);const x=await api<any>('/admin/tests/import',{method:'POST',body:JSON.stringify({tests:rows})});setMsg(`Published ${x.count} tests successfully.`);await loadCatalog()}catch(e:any){setMsg(e.message)}finally{setBusy(false)}}
- async function changePrice(testNo:string,value:string){const price=Number(value);if(!Number.isFinite(price)||price<0)return;try{await api('/admin/tests/price',{method:'POST',body:JSON.stringify({test_no:testNo,patient_price:price})});setCatalog(c=>c.map(t=>t.test_no===testNo?{...t,patient_price:price}:t));setMsg(`Price updated for #${testNo}.`)}catch(e:any){setMsg((e as Error).message)}}
- async function deleteBooking(reference:string){if(!window.confirm(`Delete booking ${reference}? This cannot be undone.`))return;try{setBusy(true);await api(`/admin/bookings/${encodeURIComponent(reference)}`,{method:'DELETE'});setBookings(b=>b.filter(x=>x.reference!==reference));if(selectedBooking?.reference===reference)setSelectedBooking(null);setMsg(`Booking ${reference} deleted.`)}catch(e:any){setMsg((e as Error).message)}finally{setBusy(false)}}
- async function changePassword(){try{setBusy(true);await api('/admin/change-password',{method:'POST',body:JSON.stringify({current_password:currentPassword,new_password:newPassword})});setCurrentPassword('');setNewPassword('');setMsg('Password changed successfully.')}catch(e:any){setMsg((e as Error).message)}finally{setBusy(false)}}
- const visibleCatalog=useMemo(()=>catalog.filter(t=>`${t.test_no} ${t.analysis_name} ${t.unit} ${t.specimen}`.toLowerCase().includes(catalogQuery.toLowerCase())),[catalog,catalogQuery])
- const filteredBookings=useMemo(()=>{
-   const now=Date.now(); const q=bookingQuery.trim().toLowerCase()
-   return bookings.filter(b=>{
-     const t=preferredTime(b.preferred_at)
-     const matchesView=bookingView==='all'||(bookingView==='upcoming'?(t!==null&&t>=now):(t!==null&&t<now))
-     const text=`${b.reference} ${b.patient_name} ${b.phone} ${b.gender||''} ${b.preferred_at||''}`.toLowerCase()
-     return matchesView&&(!q||text.includes(q))
-   })
- },[bookings,bookingView,bookingQuery])
- const upcomingCount=useMemo(()=>{const now=Date.now();return bookings.filter(b=>{const t=preferredTime(b.preferred_at);return t!==null&&t>=now}).length},[bookings])
- if(!logged)return <main className="min-h-screen grid place-items-center p-4 bg-slate-50"><div className="w-full max-w-sm rounded-2xl border bg-white p-6 shadow"><h1 className="text-xl font-bold">Admin login</h1><p className="mt-1 text-sm text-slate-500">Works on desktop and mobile browsers.</p><input type="password" placeholder="Password" value={password} onChange={e=>setPassword(e.target.value)} onKeyDown={e=>e.key==='Enter'&&login()} className="mt-4 w-full rounded-xl border px-3 py-3"/><button onClick={login} className="mt-3 w-full rounded-xl bg-slate-900 py-3 text-white">Login</button>{msg&&<p className="mt-3 text-sm">{msg}</p>}</div></main>
- return <main className="min-h-screen bg-slate-50 p-4"><div className="mx-auto max-w-7xl">
-   <div className="flex flex-wrap items-center justify-between gap-4"><div><h1 className="text-2xl font-bold">Catalog & Bookings Admin</h1><p className="text-sm text-slate-500">v{APP_VERSION}</p></div><div className="flex gap-2"><button onClick={loadBookings} className="rounded-lg border bg-white px-3 py-2 text-sm">Refresh bookings</button><button onClick={logout} className="rounded-lg border bg-white px-3 py-2 text-sm">Logout</button></div></div>
-   {msg&&<div className="mt-4 rounded-xl border bg-white p-3 text-sm">{msg}</div>}
-   <section className="mt-5 rounded-2xl border bg-white p-5"><div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="text-lg font-bold">Upcoming reservations</h2><p className="text-sm text-slate-500">{upcomingCount} upcoming reservation{upcomingCount===1?'':'s'} with a preferred date/time.</p></div><div className="flex flex-wrap gap-2"><button onClick={()=>setBookingView('upcoming')} className={`rounded-lg px-3 py-2 text-sm ${bookingView==='upcoming'?'bg-slate-900 text-white':'border bg-white'}`}>Upcoming</button><button onClick={()=>setBookingView('all')} className={`rounded-lg px-3 py-2 text-sm ${bookingView==='all'?'bg-slate-900 text-white':'border bg-white'}`}>All</button><button onClick={()=>setBookingView('past')} className={`rounded-lg px-3 py-2 text-sm ${bookingView==='past'?'bg-slate-900 text-white':'border bg-white'}`}>Past</button><input value={bookingQuery} onChange={e=>setBookingQuery(e.target.value)} placeholder="Search patient / phone / reference" className="w-64 rounded-lg border px-3 py-2 text-sm"/></div></div>
-     <div className="mt-4 grid gap-3">
-       {filteredBookings.map(b=><article key={b.reference} className="rounded-2xl border p-4">
-         <div className="flex flex-wrap items-start justify-between gap-4"><div><div className="flex flex-wrap items-center gap-2"><h3 className="font-bold">{b.patient_name}</h3><span className="rounded-full bg-slate-100 px-2 py-1 text-xs font-semibold">{b.reference}</span></div><div className="mt-2 text-sm text-slate-600">ð {formatDate(b.preferred_at)} Â· ð {b.phone}</div><div className="mt-1 text-sm text-slate-500">Age {b.age??'â'} Â· {b.gender||'â'} Â· Total {Number(b.total||0)} EGP</div></div><div className="flex gap-2"><button onClick={()=>setSelectedBooking(b)} className="rounded-lg bg-slate-900 px-3 py-2 text-sm font-semibold text-white">View details</button><button disabled={busy} onClick={()=>deleteBooking(b.reference)} className="rounded-lg border border-red-300 px-3 py-2 text-sm text-red-700 disabled:opacity-40">Delete</button></div></div>
-         <div className="mt-3 text-xs text-slate-400">Created {formatDate(b.created_at)}</div>
-       </article>)}
-       {!filteredBookings.length&&<p className="py-8 text-center text-slate-500">No reservations in this view.</p>}
-     </div>
-   </section>
-   <div className="mt-5 grid gap-5 lg:grid-cols-2">
-    <section className="rounded-2xl border bg-white p-6"><h2 className="text-lg font-bold">Import approved price list</h2><label className="mt-4 block cursor-pointer rounded-2xl border-2 border-dashed p-8 text-center"><input type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={e=>e.target.files?.[0]&&parse(e.target.files[0])}/><b>Choose the approved laboratory price-list</b><div className="mt-2 text-sm text-slate-500">Supports the current 8-column .xls format and older 9-column format.</div></label><button disabled={!rows.length||busy} onClick={publish} className="mt-4 rounded-xl bg-slate-900 px-5 py-3 text-white disabled:opacity-40">{busy?'Workingâ¦':'Publish catalog'}</button></section>
-    <section className="rounded-2xl border bg-white p-6"><h2 className="text-lg font-bold">Change admin password</h2><input type="password" placeholder="Current password" value={currentPassword} onChange={e=>setCurrentPassword(e.target.value)} className="mt-4 w-full rounded-xl border px-3 py-3"/><input type="password" placeholder="New password" value={newPassword} onChange={e=>setNewPassword(e.target.value)} className="mt-3 w-full rounded-xl border px-3 py-3"/><button disabled={busy||!currentPassword||!newPassword} onClick={changePassword} className="mt-3 rounded-xl bg-slate-900 px-5 py-3 text-white disabled:opacity-40">Change password</button></section>
-   </div>
-   {rows.length>0&&<div className="mt-5 overflow-auto rounded-2xl border bg-white"><div className="p-4 font-semibold">Preview Â· {rows.length} tests</div><table className="min-w-full text-sm"><thead><tr>{sourceHeaders.map(c=><th className="border-b p-3 text-left whitespace-nowrap" key={c}>{c}</th>)}</tr></thead><tbody>{rows.slice(0,20).map((r,i)=><tr key={i}>{sourceHeaders.map(c=><td className="border-b p-3 align-top" key={c}>{String(r[keyMap[c]]??'')}</td>)}</tr>)}</tbody></table></div>}
-   <section className="mt-5 rounded-2xl border bg-white p-5"><div className="flex flex-wrap items-center justify-between gap-3"><h2 className="text-lg font-bold">Test prices</h2><input value={catalogQuery} onChange={e=>setCatalogQuery(e.target.value)} placeholder="Search testsâ¦" className="rounded-lg border px-3 py-2"/><button onClick={loadCatalog} className="rounded-lg border px-3 py-2 text-sm">Refresh</button></div><div className="mt-4 overflow-auto"><table className="min-w-full text-sm"><thead><tr>{['#','Analysis name','Unit','Specimen','Patient price','Save'].map(c=><th key={c} className="border-b p-3 text-left whitespace-nowrap">{c}</th>)}</tr></thead><tbody>{visibleCatalog.map(t=><tr key={t.test_no}><td className="border-b p-3">{t.test_no}</td><td className="border-b p-3">{t.analysis_name}</td><td className="border-b p-3">{t.unit}</td><td className="border-b p-3">{t.specimen}</td><td className="border-b p-3"><input id={`price-${t.test_no}`} defaultValue={t.patient_price} type="number" min="0" step="0.01" className="w-28 rounded-lg border px-2 py-2"/></td><td className="border-b p-3"><button onClick={()=>{const el=document.getElementById(`price-${t.test_no}`) as HTMLInputElement|null;if(el)changePrice(t.test_no,el.value)}} className="rounded-lg bg-slate-900 px-3 py-2 text-white">Save</button></td></tr>)}</tbody></table>{!visibleCatalog.length&&<p className="py-8 text-center text-slate-500">No tests found.</p>}</div></section>
- </div>
- {selectedBooking&&<div className="fixed inset-0 z-50 grid place-items-center bg-black/50 p-4" onMouseDown={e=>{if(e.target===e.currentTarget)setSelectedBooking(null)}}><div className="max-h-[90vh] w-full max-w-2xl overflow-auto rounded-2xl bg-white p-6 shadow-2xl"><div className="flex items-start justify-between gap-4"><div><h2 className="text-xl font-bold">Reservation details</h2><p className="mt-1 text-sm text-slate-500">{selectedBooking.reference}</p></div><button onClick={()=>setSelectedBooking(null)} className="rounded-lg border px-3 py-2">â</button></div>
-   <div className="mt-5 grid gap-3 sm:grid-cols-2"><div className="rounded-xl bg-slate-50 p-3"><div className="text-xs text-slate-500">Patient</div><div className="font-semibold">{selectedBooking.patient_name}</div></div><div className="rounded-xl bg-slate-50 p-3"><div className="text-xs text-slate-500">Phone</div><div className="font-semibold">{selectedBooking.phone}</div></div><div className="rounded-xl bg-slate-50 p-3"><div className="text-xs text-slate-500">Preferred date/time</div><div className="font-semibold">{formatDate(selectedBooking.preferred_at)}</div></div><div className="rounded-xl bg-slate-50 p-3"><div className="text-xs text-slate-500">Patient details</div><div className="font-semibold">Age {selectedBooking.age??'â'} Â· {selectedBooking.gender||'â'}</div></div></div>
-   <div className="mt-3 rounded-xl bg-slate-50 p-3"><div className="text-xs text-slate-500">Address / home collection</div><div className="mt-1 whitespace-pre-wrap font-medium">{selectedBooking.address||'Not provided'}</div></div>
-   <div className="mt-5"><h3 className="font-bold">Reserved tests</h3><div className="mt-2 divide-y rounded-xl border">{bookingTests(selectedBooking).map((t:any,i:number)=><div key={i} className="flex items-start justify-between gap-4 p-3"><div><div className="font-medium">{t.analysis_name||t.test_no}</div><div className="text-xs text-slate-500">#{t.test_no}{t.specimen?` Â· ${t.specimen}`:''}</div></div><div className="font-semibold">{Number(t.patient_price||0)} EGP</div></div>)}{!bookingTests(selectedBooking).length&&<div className="p-4 text-sm text-slate-500">No test details stored.</div>}</div></div>
-   <div className="mt-4 flex justify-between border-t pt-4 text-lg font-bold"><span>Total</span><span>{Number(selectedBooking.total||0)} EGP</span></div>
-   <div className="mt-2 text-xs text-slate-400">Booking created {formatDate(selectedBooking.created_at)}</div>
-   <div className="mt-5 flex justify-end gap-2"><button onClick={()=>setSelectedBooking(null)} className="rounded-xl border px-4 py-2">Close</button><button disabled={busy} onClick={()=>deleteBooking(selectedBooking.reference)} className="rounded-xl border border-red-300 px-4 py-2 text-red-700">Delete reservation</button></div>
- </div></div>}
- </main>
+  useEffect(()=>{
+    const term=q.trim().toLowerCase()
+    if(!term){setTests([]);setLoading(false);return}
+    const id=++requestId.current
+    const controller=new AbortController()
+    const timer=window.setTimeout(async()=>{
+      try{
+        setLoading(true);setErr('')
+        const x=await api<{tests:Test[]}>(`/tests?q=${encodeURIComponent(term)}`,{signal:controller.signal} as any)
+        if(id!==requestId.current||controller.signal.aborted)return
+        // Defensive client-side filtering: even if an old Worker is still deployed,
+        // never display the whole catalogue for a search.
+        const matches=(x.tests||[]).filter(t=>{
+          const hay=[t.test_no,t.analysis_name,t.unit,t.ref_range,t.specimen].map(v=>String(v||'').toLowerCase())
+          return hay.some(v=>v.includes(term))
+        }).slice(0,50)
+        setTests(matches)
+        setCatalog(prev=>{const next={...prev};for(const t of matches)next[t.test_no]=t;return next})
+      }catch(e:any){if(!controller.signal.aborted&&id===requestId.current)setErr(e.message||'Search failed')}
+      finally{if(!controller.signal.aborted&&id===requestId.current)setLoading(false)}
+    },220)
+    return()=>{window.clearTimeout(timer);controller.abort()}
+  },[q])
+
+  const selected=useMemo(()=>Object.keys(cart).filter(k=>cart[k]>0&&catalog[k]).map(k=>catalog[k]),[cart,catalog])
+  const total=useMemo(()=>selected.reduce((s,t)=>s+(cart[t.test_no]||0)*Number(t.patient_price),0),[selected,cart])
+  const addTest=(t:Test)=>{setCatalog(p=>({...p,[t.test_no]:t}));setCart(c=>({...c,[t.test_no]:(c[t.test_no]||0)+1}))}
+  const removeTest=(n:string)=>setCart(c=>({...c,[n]:Math.max(0,(c[n]||0)-1)}))
+  const addFirstResult=()=>{if(!tests[0])return;addTest(tests[0]);setQ('');window.setTimeout(()=>searchRef.current?.focus(),0)}
+  const submit=async(e:any)=>{e.preventDefault();try{setErr('');const x=await api<any>('/bookings',{method:'POST',body:JSON.stringify({...form,age:Number(form.age),tests:selected.map(t=>({code:t.test_no}))})});setDone(x);setCart({});setOpen(false)}catch(e:any){setErr(e.message||'Booking failed')}}
+
+  const Results=()=> <div className="mt-4">
+    {!q.trim()?<div className="rounded-2xl border border-dashed bg-white p-8 text-center text-sm text-slate-500">Start typing to search the test catalogue.</div>
+    :loading?<div className="py-10 text-center text-sm text-slate-500">Searching…</div>
+    :tests.length===0?<div className="rounded-2xl border bg-white p-8 text-center text-sm text-slate-500">No matching tests found.</div>
+    :<><div className="mb-2 text-xs text-slate-500">Showing {tests.length} matching test{tests.length===1?'':'s'}</div><div className="grid gap-3">
+      {tests.map(t=><article key={t.test_no} className="rounded-2xl border bg-white p-4 shadow-sm">
+        <div className="flex items-start justify-between gap-4"><div className="min-w-0"><h2 dir="auto" className="font-semibold">{t.analysis_name}</h2><div className="mt-1 text-sm text-slate-500">#{t.test_no}{t.unit&&` · ${t.unit}`}{t.specimen&&` · ${t.specimen}`}</div>{t.ref_range&&<div className="mt-2 text-xs text-slate-500"><b>Ref:</b> {t.ref_range}</div>}<div className="mt-2 text-xs font-medium text-slate-600">TAT: {t.duration} {t.duration===1?'hour':'hours'}</div></div><div className="shrink-0 text-right"><div className="text-lg font-bold">{t.patient_price}</div><div className="text-xs text-slate-500">EGP</div></div></div>
+        <div className="mt-3 flex items-center gap-2"><button type="button" aria-label="Remove" onClick={()=>removeTest(t.test_no)} className="h-9 w-9 rounded-lg border">−</button><span className="min-w-6 text-center">{cart[t.test_no]||0}</span><button type="button" aria-label="Add" onClick={()=>addTest(t)} className="h-9 w-9 rounded-lg border">+</button></div>
+      </article>)}
+    </div></>}
+  </div>
+
+  return <main className="min-h-screen">
+    <header className="bg-slate-900 text-white"><div className="mx-auto max-w-6xl px-4 py-6 sm:py-7"><h1 className="text-2xl font-bold sm:text-3xl">Booking Lab by Amr Ziyada</h1><p className="mt-1 text-sm text-slate-300 sm:text-base">Choose your tests and reserve a convenient time.</p></div></header>
+
+    {/* MOBILE: one deliberate vertical order — SEARCH → TEST RESULTS → RESERVATION */}
+    <div className="mx-auto max-w-6xl px-4 py-4 lg:hidden">
+      <div className="sticky top-0 z-40 -mx-4 border-b bg-slate-50/95 px-4 py-3 backdrop-blur"><SearchBox q={q} setQ={setQ} searchRef={searchRef} onEnter={addFirstResult}/></div>
+      {err&&<div className="mt-4 rounded-xl bg-red-50 p-3 text-sm text-red-700">{err}</div>}
+      <Results />
+      <div className="mt-6"><CartBox selected={selected} cart={cart} total={total} addTest={addTest} removeTest={removeTest} onReserve={()=>setOpen(true)}/></div>
+    </div>
+
+    {/* DESKTOP: results on the left, reservation on the right */}
+    <div className="mx-auto hidden max-w-6xl px-4 py-6 lg:block">
+      <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_330px]">
+        <section><div className="sticky top-0 z-20"><SearchBox q={q} setQ={setQ} searchRef={searchRef} onEnter={addFirstResult}/></div>{err&&<div className="mt-4 rounded-xl bg-red-50 p-3 text-sm text-red-700">{err}</div>}<Results/></section>
+        <aside className="sticky top-4"><CartBox selected={selected} cart={cart} total={total} addTest={addTest} removeTest={removeTest} onReserve={()=>setOpen(true)}/></aside>
+      </div>
+    </div>
+
+    {open&&<div className="fixed inset-0 z-50 grid place-items-center bg-black/50 p-4"><form onSubmit={submit} className="max-h-[90vh] w-full max-w-xl overflow-auto rounded-2xl bg-white p-6"><div className="flex justify-between"><h2 className="text-xl font-bold">Booking details</h2><button type="button" onClick={()=>setOpen(false)}>✕</button></div><div className="mt-5 grid gap-3 sm:grid-cols-2"><label className="grid gap-1 text-sm">Patient name<input required value={form.patient_name} onChange={e=>setForm({...form,patient_name:e.target.value})} className="rounded-xl border px-3 py-2"/></label><label className="grid gap-1 text-sm">Age<input required min="0" max="120" type="number" value={form.age} onChange={e=>setForm({...form,age:e.target.value})} className="rounded-xl border px-3 py-2"/></label><label className="grid gap-1 text-sm">Phone number<input required value={form.phone} onChange={e=>setForm({...form,phone:e.target.value})} className="rounded-xl border px-3 py-2"/></label><label className="grid gap-1 text-sm">Preferred date/time<input type="datetime-local" value={form.preferred_at} onChange={e=>setForm({...form,preferred_at:e.target.value})} className="rounded-xl border px-3 py-2"/></label><label className="grid gap-1 text-sm">Gender<select required value={form.gender} onChange={e=>setForm({...form,gender:e.target.value})} className="rounded-xl border px-3 py-2"><option value="">Select</option><option>Male</option><option>Female</option><option>Other</option></select></label><label className="grid gap-1 text-sm sm:col-span-2">Address / home collection<textarea value={form.address} onChange={e=>setForm({...form,address:e.target.value})} className="rounded-xl border px-3 py-2" rows={3}/></label></div><button className="mt-5 w-full rounded-xl bg-slate-900 py-3 font-semibold text-white">Confirm booking · {total} EGP</button></form></div>}
+    {done&&<div className="fixed inset-0 z-50 grid place-items-center bg-black/50 p-4"><div className="w-full max-w-md rounded-2xl bg-white p-7 text-center"><div className="text-4xl">✓</div><h2 className="mt-3 text-2xl font-bold">Booking received</h2><p className="mt-2 text-slate-600">Reference</p><div className="my-3 rounded-xl bg-slate-100 p-4 text-2xl font-bold tracking-widest">{done.reference}</div><p className="text-sm text-slate-500">Total: {done.total} EGP</p><button onClick={()=>setDone(null)} className="mt-4 rounded-xl bg-slate-900 px-5 py-3 font-semibold text-white">Done</button></div></div>}
+    <footer className="mx-auto max-w-6xl px-4 pb-6 text-center text-xs text-slate-400">v{APP_VERSION}</footer>
+  </main>
 }
