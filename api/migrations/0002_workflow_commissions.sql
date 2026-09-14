@@ -1,5 +1,4 @@
 -- v1.3.0 workflow, users, commissions, extra tests and payments
-ALTER TABLE bookings ADD COLUMN status TEXT NOT NULL DEFAULT 'PENDING';
 ALTER TABLE bookings ADD COLUMN original_total REAL;
 ALTER TABLE bookings ADD COLUMN created_by_user_id INTEGER;
 ALTER TABLE bookings ADD COLUMN created_by_type TEXT NOT NULL DEFAULT 'PUBLIC';
@@ -117,3 +116,5 @@ CREATE INDEX IF NOT EXISTS idx_bookings_assigned ON bookings(assigned_to_user_id
 CREATE INDEX IF NOT EXISTS idx_bookings_patient_phone ON bookings(phone, patient_name);
 
 UPDATE bookings SET original_total=total WHERE original_total IS NULL;
+
+UPDATE bookings SET status='PENDING' WHERE status='new';
