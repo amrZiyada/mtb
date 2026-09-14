@@ -76,7 +76,7 @@ export default function Home(){
     return()=>{window.clearTimeout(timer);controller.abort()}
   },[q])
 
-  const selected=useMemo(()=>Object.keys(cart).filter(k=>cart[k]>0&&catalog[k]).map(k=>catalog[k]),[cart,catalog])
+  const selected=useMemo(()=>Object.keys(cart).filter(k=>cart[k]&&catalog[k]).map(k=>catalog[k]),[cart,catalog])
   const total=useMemo(()=>selected.reduce((s,t)=>s+Number(t.patient_price),0),[selected,cart])
   const addTest=(t:Test)=>{if(cart[t.test_no])return;setCatalog(p=>({...p,[t.test_no]:t}));setCart(c=>({...c,[t.test_no]:true}))}
   const removeTest=(n:string)=>setCart(c=>{const x={...c};delete x[n];return x})
