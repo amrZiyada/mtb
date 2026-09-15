@@ -110,7 +110,8 @@ async function auth(c:AppContext):Promise<Auth|null>{
 async function authAs(c:AppContext,expected:'ADMIN'|'USER'):Promise<Auth|null>{
   const h=c.req.header('Authorization')||''
   const bearer=h.startsWith('Bearer ')?h.slice(7):undefined
-  const token=bearer||getCookie(c,expected==='ADMIN'?'admin_session':'user_session')
+  const bearerAuth=verifyToken(bearer,c.env.SESSION_SECRET) as any
+  const token=bearerAuth?.kind===expected?bearer:getCookie(c,expected==='ADMIN'?'admin_session':'user_session')
   const x=verifyToken(token,c.env.SESSION_SECRET) as any
   if(!x||x.kind!==expected)return null
   if(x.kind==='ADMIN')return x
