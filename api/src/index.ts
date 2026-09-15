@@ -105,6 +105,19 @@ async function auth(c:AppContext):Promise<Auth|null>{
   if(!user||!user.active)return null
   return {kind:'USER',user}
 }
+// Scoped check that only reads the cookie matching `expected`, so an admin_session in the same
+// browser can't shadow a staff user_session (or vice versa) for session-identity checks.
+async function authAs(c:AppContext,expected:'ADMIN'|'USER'):Promise<Auth|null>{
+  const h=c.req.header('Authorization')||''
+  const bearer=h.startsWith('Bearer ')?h.slice(7):undefined
+  const token=bearer||getCookie(c,expected==='ADMIN'?'admin_session':'user_session')
+  const x=verifyToken(token,c.env.SESSION_SECRET) as any
+  if(!x||x.kind!==expected)return null
+  if(x.kind==='ADMIN')return x
+  const user=await c.env.DB.prepare('SELECT id,username,display_name,mobile,user_type,active,permissions_json FROM users WHERE id=?').bind(x.id).first<User>()
+  if(!user||!user.active)return null
+  return {kind:'USER',user}
+}
 function hasPerm(a:Auth|null,p:string){if(!a)return false;if(a.kind==='ADMIN')return true;try{return JSON.parse(a.user?.permissions_json||'[]').includes(p)}catch{return false}}
 function jsonErr(c:any,msg:string,status=400){return c.json({error:msg},status)}
 function randomHex(){return Array.from(crypto.getRandomValues(new Uint8Array(3))).map(b=>b.toString(16).padStart(2,'0')).join('').toUpperCase()}
@@ -180,7 +193,8 @@ app.post('/login',async c=>{
  const {username,password}=await c.req.json();if(!validText(username,128)||!validText(password,256))return jsonErr(c,'Invalid username or password',401);const key=loginKey('user',String(username),clientIp(c));if(!loginAllowed(key))return jsonErr(c,'Too many login attempts. Try again later.',429);const u=await c.env.DB.prepare('SELECT * FROM users WHERE LOWER(username)=LOWER(?) AND active=1').bind(String(username).trim()).first<LoginUser>();const verification=u?await verifyPassword(u.password_hash,String(password)):null;if(!u||!verification?.valid){loginFailure(key);return jsonErr(c,'Invalid username or password',401)}loginSuccess(key);if(verification.legacy)await c.env.DB.prepare('UPDATE users SET password_hash=?,updated_at=CURRENT_TIMESTAMP WHERE id=?').bind(await hashPassword(String(password)),u.id).run();
  const token=makeToken(c.env.SESSION_SECRET,'u',u.id);setCookie(c,'user_session',token,{httpOnly:true,secure:true,sameSite:'None',path:'/',maxAge:28800});return c.json({ok:true,token,user:{id:u.id,username:u.username,display_name:u.display_name,mobile:u.mobile,user_type:u.user_type,permissions:JSON.parse(u.permissions_json||'[]')}})
 })
-app.get('/me',async c=>{const a=await auth(c);if(!a)return jsonErr(c,'Unauthorized',401);if(a.kind==='ADMIN')return c.json({admin:true,permissions:ALL_PERMISSIONS});return c.json({admin:false,user:{...a.user,permissions:JSON.parse(a.user!.permissions_json||'[]')}})})
+app.get('/me',async c=>{const a=await authAs(c,'USER');if(!a)return jsonErr(c,'Unauthorized',401);return c.json({admin:false,user:{...a.user,permissions:JSON.parse(a.user!.permissions_json||'[]')}})})
+app.get('/admin/me',async c=>{const a=await authAs(c,'ADMIN');if(!a)return jsonErr(c,'Unauthorized',401);return c.json({admin:true,permissions:ALL_PERMISSIONS})})
 app.post('/change-password',async c=>{const a=await auth(c);if(!a||a.kind!=='USER')return jsonErr(c,'Unauthorized',401);const b=await c.req.json();if(!validText(b.new_password,256))return jsonErr(c,'Invalid password');await c.env.DB.prepare('UPDATE users SET password_hash=?,updated_at=CURRENT_TIMESTAMP WHERE id=?').bind(await hashPassword(b.new_password),a.user!.id).run();return c.json({ok:true})})
 
 app.get('/my/bookings',async c=>{const a=await auth(c);if(!a||a.kind!=='USER')return jsonErr(c,'Unauthorized',401);if(!hasPerm(a,'view_own_reservations'))return jsonErr(c,'Permission denied',403);const {results}=await c.env.DB.prepare(`SELECT b.*,u.display_name AS assigned_name FROM bookings b LEFT JOIN users u ON u.id=b.assigned_to_user_id WHERE b.created_by_user_id=? OR b.assigned_to_user_id=? ORDER BY b.created_at DESC LIMIT 500`).bind(a.user!.id,a.user!.id).all();return c.json({bookings:results||[]})})
