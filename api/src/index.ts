@@ -29,7 +29,7 @@ function validUserId(value:unknown){const n=Number(value);return Number.isIntege
 async function targetActual(db:D1Database,userId:number,from:string,to:string){const row=await db.prepare(`SELECT COUNT(*) AS n FROM bookings WHERE DATE(created_at) BETWEEN ? AND ? AND (created_by_user_id=? OR assigned_to_user_id=?)`).bind(from,to,userId,userId).first<any>();return Number(row?.n||0)}
 async function targetWithProgress(db:D1Database,target:any){const actual=await targetActual(db,Number(target.user_id),target.period_start,target.period_end);const value=Number(target.target_value);return {...target,actual,percentage:value?actual/value:0,remaining:Math.max(0,value-actual)}}
 const PASSWORD_SCHEME='pbkdf2-sha256'
-const PASSWORD_ITERATIONS=120000
+const PASSWORD_ITERATIONS=100000
 const loginAttempts=new Map<string,{failures:number;blockedUntil:number;lastAttempt:number}>()
 
 const ALL_PERMISSIONS = [
