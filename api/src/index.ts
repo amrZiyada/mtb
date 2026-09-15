@@ -7,6 +7,8 @@ const app = new Hono<Env>()
 
 type User = { id:number; username:string; display_name:string; mobile:string; user_type:'DOCTOR'|'REP'|'SALESMAN'; active:number; permissions_json:string }
 type Auth = { kind:'ADMIN'|'USER'; user?:User }
+const BOOKING_STATUS_ORDER:Record<string,number>={PENDING:0,ASSIGNED:1,ACCEPTED:2,CONFIRMED:3,DONE:4}
+function isValidBookingStatus(status:string){return Object.prototype.hasOwnProperty.call(BOOKING_STATUS_ORDER,status)}
 
 const ALL_PERMISSIONS = [
   'create_reservations','view_own_reservations','edit_own_pending_reservations',
@@ -109,7 +111,7 @@ async function freezeFinancials(db:D1Database,ref:string){
 
 app.get('/tests',async c=>{
  const q=String(c.req.query('q')||'').trim().toLowerCase();if(!q)return c.json({tests:[]});const like=`%${q}%`
- const {results}=await c.env.DB.prepare(`SELECT test_no,analysis_name,unit,ref_range,specimen,duration,price,contract_price,patient_price FROM tests WHERE active=1 AND (LOWER(analysis_name) LIKE ? OR LOWER(test_no) LIKE ? OR LOWER(unit) LIKE ? OR LOWER(ref_range) LIKE ? OR LOWER(specimen) LIKE ?) ORDER BY CASE WHEN LOWER(test_no)=? THEN 0 WHEN LOWER(analysis_name)=? THEN 1 WHEN LOWER(test_no) LIKE ? THEN 2 WHEN LOWER(analysis_name) LIKE ? THEN 3 ELSE 4 END,analysis_name ASC LIMIT 5`).bind(like,like,like,like,like,q,q,`${q}%`,`${q}%`).all();return c.json({tests:results||[]})
+ const {results}=await c.env.DB.prepare(`SELECT test_no,analysis_name,unit,ref_range,specimen,duration,price,contract_price,patient_price FROM tests WHERE active=1 AND (LOWER(analysis_name) LIKE ? OR LOWER(test_no) LIKE ? OR LOWER(unit) LIKE ? OR LOWER(ref_range) LIKE ? OR LOWER(specimen) LIKE ?) ORDER BY CASE WHEN LOWER(test_no)=? THEN 0 WHEN LOWER(analysis_name)=? THEN 1 WHEN LOWER(test_no) LIKE ? THEN 2 WHEN LOWER(analysis_name) LIKE ? THEN 3 ELSE 4 END,analysis_name ASC LIMIT 50`).bind(like,like,like,like,like,q,q,`${q}%`,`${q}%`).all();return c.json({tests:results||[]})
 })
 
 app.get('/bookings/check-duplicate',async c=>{const name=String(c.req.query('name')||'').trim();const phone=String(c.req.query('phone')||'').trim();if(!name||!phone)return c.json({duplicates:[]});return c.json({duplicates:await activeDuplicate(c.env.DB,name,phone)})})
@@ -141,9 +143,8 @@ app.get('/my/bookings',async c=>{const a=await auth(c);if(!a||a.kind!=='USER')re
 
 app.get('/bookings/:reference',async c=>{const a=await auth(c);if(!a)return jsonErr(c,'Unauthorized',401);const ref=String(c.req.param('reference'));const b=await bookingByRef(c.env.DB,ref);if(!b)return jsonErr(c,'Booking not found',404);if(a.kind==='USER'&&!hasPerm(a,'view_all_reservations')&&b.created_by_user_id!==a.user!.id&&b.assigned_to_user_id!==a.user!.id)return jsonErr(c,'Forbidden',403);const assigned=b.assigned_to_user_id?await userById(c.env.DB,Number(b.assigned_to_user_id)):null;const extras=(await c.env.DB.prepare('SELECT * FROM booking_extra_tests WHERE booking_reference=? ORDER BY added_at ASC').bind(ref).all()).results||[];return c.json({booking:{...b,assigned_name:assigned?.display_name||null},extra_tests:extras})})
 
-async function transition(c:any,ref:string,to:string){const a=await auth(c);if(!a)return jsonErr(c,'Unauthorized',401);const b=await bookingByRef(c.env.DB,ref);if(!b)return jsonErr(c,'Booking not found',404);const order:any={PENDING:0,ASSIGNED:1,ACCEPTED:2,CONFIRMED:3,DONE:4};const from=String(b.status||'PENDING');if(a.kind==='ADMIN'){/* controlled admin correction allowed */}else{
- if(order[to]===undefined)return jsonErr(c,'Invalid status')
- if(order[to]<order[from])return jsonErr(c,'Status cannot move backwards',409)
+async function transition(c:any,ref:string,to:string){const a=await auth(c);if(!a)return jsonErr(c,'Unauthorized',401);const b=await bookingByRef(c.env.DB,ref);if(!b)return jsonErr(c,'Booking not found',404);const from=String(b.status||'PENDING');if(!isValidBookingStatus(to))return jsonErr(c,'Invalid status');if(a.kind==='ADMIN'){/* controlled admin correction allowed */}else{
+ if(BOOKING_STATUS_ORDER[to]<BOOKING_STATUS_ORDER[from])return jsonErr(c,'Status cannot move backwards',409)
  if(to==='ACCEPTED'&&(!hasPerm(a,'accept_assigned_reservations')||Number(b.assigned_to_user_id)!==a.user!.id))return jsonErr(c,'Permission denied',403)
  if(to==='CONFIRMED'&&(!hasPerm(a,'confirm_visits')||Number(b.assigned_to_user_id)!==a.user!.id))return jsonErr(c,'Permission denied',403)
  if(to==='DONE'&&(!hasPerm(a,'mark_visits_done')||Number(b.assigned_to_user_id)!==a.user!.id))return jsonErr(c,'Permission denied',403)
