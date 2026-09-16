@@ -1,0 +1,89 @@
+name: OpenCode Cloud Test
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  opencode-test:
+    name: OpenCode + NVIDIA read-only test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+
+      - name: Install OpenCode 1.18.31
+        run: |
+          npm install -g opencode-ai@1.18.31
+          opencode --version
+
+      - name: Create OpenCode configuration
+        run: |
+          cat > opencode.json <<'EOF'
+          {
+            "$schema": "https://opencode.ai/config.json",
+            "model": "nvidia/nemotron-3-ultra-550b-a55b",
+            "provider": {
+              "nvidia": {
+                "npm": "@ai-sdk/openai-compatible",
+                "name": "NVIDIA NIM",
+                "options": {
+                  "baseURL": "{env:NVIDIA_BASE_URL}",
+                  "apiKey": "{env:NVIDIA_API_KEY}"
+                },
+                "models": {
+                  "nemotron-3-ultra-550b-a55b": {
+                    "name": "nvidia/nemotron-3-ultra-550b-a55b",
+                    "limit": {
+                      "context": 1000000,
+                      "output": 32768
+                    }
+                  }
+                }
+              }
+            }
+          }
+          EOF
+
+      - name: Run OpenCode read-only inspection
+        env:
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+          NVIDIA_BASE_URL: https://integrate.api.nvidia.com/v1
+        run: |
+          opencode run \
+            --model nvidia/nvidia/nemotron-3-ultra-550b-a55b \
+            --print-logs \
+            "You are performing a READ-ONLY inspection of the BookingLab repository.
+
+DO NOT modify any files.
+DO NOT create, delete, or rename files.
+DO NOT commit.
+DO NOT push.
+DO NOT create branches.
+DO NOT create pull requests.
+DO NOT deploy anything.
+
+Inspect the repository and report:
+
+1. Current project structure.
+2. Frontend architecture.
+3. API architecture.
+4. Database/migration structure.
+5. Authentication architecture.
+6. Current git status.
+7. Any uncommitted files you can see.
+8. The current BookingLab version if identifiable.
+
+Do not make any changes. Finish with exactly:
+
+NVIDIA OPENCODE CLOUD TEST COMPLETE"
