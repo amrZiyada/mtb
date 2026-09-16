@@ -1,0 +1,32 @@
+name: Cloud Agent Test
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Cloud runner test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Show environment
+        run: |
+          echo "Cloud runner is working"
+          echo "Repository: $GITHUB_REPOSITORY"
+          echo "Branch: $GITHUB_REF_NAME"
+          echo "Commit: $GITHUB_SHA"
+          echo "Runner OS: $RUNNER_OS"
+
+      - name: Verify BookingLab structure
+        run: |
+          test -d api
+          test -d web
+          test -f api/src/index.ts
+          test -f web/package.json
+          echo "BookingLab structure OK"
