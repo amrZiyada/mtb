@@ -1,0 +1,120 @@
+name: Multi-Agent Cloud Test
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  agents:
+    name: Agent ${{ matrix.agent }}
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        include:
+          - agent: "1-Nemotron"
+            model: "nemotron-3-ultra-550b-a55b"
+            task: "Inspect the API architecture, especially api/src/index.ts and the database/migration structure."
+          - agent: "2-DeepSeek"
+            model: "deepseek-v4-flash-0731"
+            task: "Inspect the frontend architecture, especially web/app and the Next.js structure."
+
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+
+      - name: Install OpenCode 1.18.31
+        run: |
+          npm install -g opencode-ai@1.18.31
+          opencode --version
+
+      - name: Create OpenCode configuration
+        run: |
+          cat > opencode.json <<'EOF'
+          {
+            "$schema": "https://opencode.ai/config.json",
+            "provider": {
+              "nvidia": {
+                "npm": "@ai-sdk/openai-compatible",
+                "name": "NVIDIA NIM",
+                "options": {
+                  "baseURL": "{env:NVIDIA_BASE_URL}",
+                  "apiKey": "{env:NVIDIA_API_KEY}"
+                },
+                "models": {
+                  "nemotron-3-ultra-550b-a55b": {
+                    "name": "nvidia/nemotron-3-ultra-550b-a55b",
+                    "limit": {
+                      "context": 1000000,
+                      "output": 32768
+                    }
+                  },
+                  "deepseek-v4-flash-0731": {
+                    "name": "nvidia/deepseek-v4-flash-0731",
+                    "limit": {
+                      "context": 1000000,
+                      "output": 32768
+                    }
+                  }
+                }
+              }
+            }
+          }
+          EOF
+
+      - name: Run OpenCode agent
+        env:
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+          NVIDIA_BASE_URL: https://integrate.api.nvidia.com/v1
+          MODEL: ${{ matrix.model }}
+          AGENT: ${{ matrix.agent }}
+          TASK: ${{ matrix.task }}
+        run: |
+          echo "========================================"
+          echo "Agent: $AGENT"
+          echo "Model: $MODEL"
+          echo "========================================"
+
+          opencode run \
+            --model "nvidia/nvidia/$MODEL" \
+            --print-logs \
+            "You are $AGENT in a MULTI-AGENT CLOUD TEST for the BookingLab repository.
+
+          This is a READ-ONLY inspection.
+
+          DO NOT modify any files.
+          DO NOT create, delete, or rename files.
+          DO NOT commit.
+          DO NOT push.
+          DO NOT create branches.
+          DO NOT create pull requests.
+          DO NOT deploy anything.
+
+          Your assigned inspection task is:
+
+          $TASK
+
+          Also report:
+          1. The relevant files you inspected.
+          2. Important architectural observations.
+          3. Any obvious issues you notice.
+          4. Current git status.
+
+          Do not make any changes.
+
+          Finish your response with exactly:
+
+          MULTI AGENT CLOUD TEST COMPLETE - $AGENT"
