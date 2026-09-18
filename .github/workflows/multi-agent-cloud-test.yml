@@ -14,19 +14,16 @@ jobs:
     strategy:
       fail-fast: false
       max-parallel: 2
+
       matrix:
         include:
           - agent: "1-Nemotron"
-            nvidia_model: "nvidia/nemotron-3-ultra-550b-a55b"
-            opencode_model: "nvidia/nemotron-3-ultra-550b-a55b"
-            task: "Inspect the API architecture, especially api/src/index.ts and the database/migration structure."
+            model: "nvidia/nemotron-3-ultra-550b-a55b"
 
           - agent: "2-DeepSeek"
-            nvidia_model: "deepseek-ai/deepseek-v4-flash-0731"
-            opencode_model: "deepseek-ai/deepseek-v4-flash-0731"
-            task: "Inspect the frontend architecture, especially web/app and the Next.js structure."
+            model: "deepseek-ai/deepseek-v4-flash-0731"
 
-    timeout-minutes: 15
+    timeout-minutes: 10
 
     steps:
       - name: Checkout repository
@@ -34,26 +31,20 @@ jobs:
         with:
           fetch-depth: 1
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version: 22
-
-      - name: Install OpenCode 1.18.31
-        run: |
-          npm install -g opencode-ai@1.18.31
-          opencode --version
-
-      - name: Test NVIDIA model endpoint
+      - name: Test NVIDIA model directly
         env:
           NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
-          NVIDIA_MODEL: ${{ matrix.nvidia_model }}
+          NVIDIA_MODEL: ${{ matrix.model }}
         run: |
-          echo "Testing NVIDIA model: $NVIDIA_MODEL"
+          echo "========================================"
+          echo "Agent: ${{ matrix.agent }}"
+          echo "NVIDIA model: $NVIDIA_MODEL"
+          echo "========================================"
 
           HTTP_STATUS=$(curl -sS \
             -o nvidia-response.json \
             -w "%{http_code}" \
+            --max-time 120 \
             -X POST \
             "https://integrate.api.nvidia.com/v1/chat/completions" \
             -H "Authorization: Bearer $NVIDIA_API_KEY" \
@@ -70,94 +61,18 @@ jobs:
               \"stream\": false
             }")
 
+          echo
           echo "HTTP_STATUS=$HTTP_STATUS"
+          echo
+          echo "NVIDIA RESPONSE:"
           cat nvidia-response.json
           echo
 
           if [ "$HTTP_STATUS" -lt 200 ] || [ "$HTTP_STATUS" -ge 300 ]; then
-            echo "NVIDIA direct model test failed."
+            echo
+            echo "NVIDIA MODEL TEST FAILED"
             exit 1
           fi
 
-          echo "NVIDIA direct model test passed."
-
-      - name: Create OpenCode configuration
-        run: |
-          cat > opencode.json <<'EOF'
-          {
-            "$schema": "https://opencode.ai/config.json",
-            "provider": {
-              "nvidia": {
-                "npm": "@ai-sdk/openai-compatible",
-                "name": "NVIDIA NIM",
-                "options": {
-                  "baseURL": "{env:NVIDIA_BASE_URL}",
-                  "apiKey": "{env:NVIDIA_API_KEY}"
-                },
-                "models": {
-                  "nvidia/nemotron-3-ultra-550b-a55b": {
-                    "name": "Nemotron 3 Ultra 550B A55B",
-                    "limit": {
-                      "context": 1000000,
-                      "output": 32768
-                    }
-                  },
-                  "deepseek-ai/deepseek-v4-flash-0731": {
-                    "name": "DeepSeek V4 Flash",
-                    "limit": {
-                      "context": 1000000,
-                      "output": 32768
-                    }
-                  }
-                }
-              }
-            }
-          }
-          EOF
-
-          echo "OpenCode configuration:"
-          cat opencode.json
-
-      - name: Run OpenCode agent
-        env:
-          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
-          NVIDIA_BASE_URL: https://integrate.api.nvidia.com/v1
-          OPENCODE_MODEL: ${{ matrix.opencode_model }}
-          AGENT: ${{ matrix.agent }}
-          TASK: ${{ matrix.task }}
-        run: |
-          echo "========================================"
-          echo "Agent: $AGENT"
-          echo "OpenCode model: nvidia/$OPENCODE_MODEL"
-          echo "========================================"
-
-          opencode run \
-            --model "nvidia/$OPENCODE_MODEL" \
-            --print-logs \
-            "You are $AGENT in a MULTI-AGENT CLOUD TEST for the BookingLab repository.
-
-          This is a READ-ONLY inspection.
-
-          DO NOT modify any files.
-          DO NOT create, delete, or rename files.
-          DO NOT commit.
-          DO NOT push.
-          DO NOT create branches.
-          DO NOT create pull requests.
-          DO NOT deploy anything.
-
-          Your assigned inspection task is:
-
-          $TASK
-
-          Also report:
-          1. The relevant files you inspected.
-          2. Important architectural observations.
-          3. Any obvious issues you notice.
-          4. Current git status.
-
-          Do not make any changes.
-
-          Finish your response with exactly:
-
-          MULTI AGENT CLOUD TEST COMPLETE - $AGENT"
+          echo
+          echo "NVIDIA MODEL TEST PASSED"
