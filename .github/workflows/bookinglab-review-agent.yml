@@ -7,6 +7,14 @@ on:
       - synchronize
       - reopened
 
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "Pull Request number to review"
+        required: true
+        type: string
+        default: "1"
+
 permissions:
   contents: read
   pull-requests: write
@@ -18,10 +26,46 @@ jobs:
     timeout-minutes: 25
 
     steps:
+      - name: Resolve PR number
+        id: pr
+        env:
+          EVENT_PR_NUMBER: ${{ github.event.pull_request.number }}
+          INPUT_PR_NUMBER: ${{ inputs.pr_number }}
+        run: |
+          if [ -n "$EVENT_PR_NUMBER" ]; then
+            PR_NUMBER="$EVENT_PR_NUMBER"
+          else
+            PR_NUMBER="$INPUT_PR_NUMBER"
+          fi
+
+          if [ -z "$PR_NUMBER" ]; then
+            echo "ERROR: PR number is missing."
+            exit 1
+          fi
+
+          echo "PR_NUMBER=$PR_NUMBER"
+          echo "number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
+
+      - name: Get PR information
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
+        run: |
+          echo "========================================"
+          echo "BOOKINGLAB REVIEW AGENT"
+          echo "========================================"
+
+          gh pr view "$PR_NUMBER" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --json number,title,state,baseRefName,headRefName,headRefOid
+
+          echo
+          echo "========================================"
+
       - name: Checkout PR
         uses: actions/checkout@v6
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
+          ref: refs/pull/${{ steps.pr.outputs.number }}/merge
           fetch-depth: 0
           persist-credentials: false
 
@@ -29,34 +73,6 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version: 22
-
-      - name: Show PR context
-        run: |
-          echo "========================================"
-          echo "BOOKINGLAB REVIEW AGENT"
-          echo "========================================"
-
-          echo "PR:"
-          echo "#${{ github.event.pull_request.number }}"
-
-          echo
-          echo "Title:"
-          echo "${{ github.event.pull_request.title }}"
-
-          echo
-          echo "Base:"
-          echo "${{ github.event.pull_request.base.ref }}"
-
-          echo
-          echo "Head:"
-          echo "${{ github.event.pull_request.head.ref }}"
-
-          echo
-          echo "Head SHA:"
-          echo "${{ github.event.pull_request.head.sha }}"
-
-          echo
-          echo "========================================"
 
       - name: Install API dependencies
         working-directory: api
@@ -91,19 +107,20 @@ jobs:
       - name: Generate PR diff
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
         run: |
           echo "========================================"
           echo "GENERATING PR DIFF"
           echo "========================================"
 
-          gh pr diff "${{ github.event.pull_request.number }}" \
-            --repo "${{ github.repository }}" \
+          gh pr diff "$PR_NUMBER" \
+            --repo "${GITHUB_REPOSITORY}" \
             > /tmp/pr.diff
 
           echo
           echo "Changed files:"
-          gh pr diff "${{ github.event.pull_request.number }}" \
-            --repo "${{ github.repository }}" \
+          gh pr diff "$PR_NUMBER" \
+            --repo "${GITHUB_REPOSITORY}" \
             --name-only
 
           echo
@@ -133,23 +150,9 @@ jobs:
           - deploy
           - merge the pull request
 
-          You are reviewing an automated multi-agent integration PR.
-
-          Repository:
-          BookingLab
-
-          Pull request:
-          #${{ github.event.pull_request.number }}
-
-          The PR was produced by:
-          - Agent 1: Nemotron 3 Ultra 550B — API
-          - Agent 2: GLM-5.3 — Dashboard
-          - Agent 3: Nemotron 3 Ultra 550B — Admin
-          - Agent 4: GLM-5.3 — Public
-
           Review the actual repository and the supplied PR diff.
 
-          IMPORTANT BOOKINGLAB RULES:
+          BOOKINGLAB RULES:
 
           1. Reservation statuses are EXACTLY:
              PENDING
@@ -178,10 +181,10 @@ jobs:
              - Finalized reservations must remain protected.
 
           6. Original selected-test pricing must remain stable.
-             Editing patient information or the original selected tests must
-             not accidentally overwrite original_total.
+             Editing patient information or original selected tests must not
+             accidentally overwrite original_total.
 
-          7. Extra tests are separate from the original reservation tests.
+          7. Extra tests are separate from original reservation tests.
 
           8. Commission rules must not be changed accidentally.
 
@@ -201,7 +204,7 @@ jobs:
           G. Ignore harmless isolation-test comments.
           H. Do not complain about formatting unless it creates a real problem.
 
-          Classify findings as:
+          Severity levels:
 
           CRITICAL
           HIGH
@@ -296,6 +299,7 @@ jobs:
       - name: Publish review to PR
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
         run: |
           echo "========================================"
           echo "PUBLISHING REVIEW"
@@ -305,7 +309,7 @@ jobs:
           ## 🤖 BookingLab Independent Review
 
           **Reviewer model:** GLM-5.3  
-          **PR:** #${{ github.event.pull_request.number }}  
+          **PR:** #${PR_NUMBER}  
           **Review type:** Independent automated review
 
           ### Validation
@@ -322,12 +326,12 @@ jobs:
 
           ---
 
-          *This review was generated automatically. Human review remains required before merge.*
+          *Automated review only. Human review remains required before merge.*
           EOF
 
           gh pr comment \
-            "${{ github.event.pull_request.number }}" \
-            --repo "${{ github.repository }}" \
+            "$PR_NUMBER" \
+            --repo "${GITHUB_REPOSITORY}" \
             --body-file /tmp/pr-review.md
 
           echo
