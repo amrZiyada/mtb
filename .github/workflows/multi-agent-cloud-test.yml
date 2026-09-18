@@ -18,12 +18,12 @@ jobs:
         include:
           - agent: "1-Nemotron"
             nvidia_model: "nvidia/nemotron-3-ultra-550b-a55b"
-            opencode_model: "nemotron-3-ultra-550b-a55b"
+            opencode_model: "nvidia/nemotron-3-ultra-550b-a55b"
             task: "Inspect the API architecture, especially api/src/index.ts and the database/migration structure."
 
           - agent: "2-DeepSeek"
             nvidia_model: "deepseek-ai/deepseek-v4-flash-0731"
-            opencode_model: "deepseek-v4-flash-0731"
+            opencode_model: "deepseek-ai/deepseek-v4-flash-0731"
             task: "Inspect the frontend architecture, especially web/app and the Next.js structure."
 
     timeout-minutes: 15
@@ -95,15 +95,15 @@ jobs:
                   "apiKey": "{env:NVIDIA_API_KEY}"
                 },
                 "models": {
-                  "nemotron-3-ultra-550b-a55b": {
-                    "name": "nvidia/nemotron-3-ultra-550b-a55b",
+                  "nvidia/nemotron-3-ultra-550b-a55b": {
+                    "name": "Nemotron 3 Ultra 550B A55B",
                     "limit": {
                       "context": 1000000,
                       "output": 32768
                     }
                   },
-                  "deepseek-v4-flash-0731": {
-                    "name": "deepseek-ai/deepseek-v4-flash-0731",
+                  "deepseek-ai/deepseek-v4-flash-0731": {
+                    "name": "DeepSeek V4 Flash",
                     "limit": {
                       "context": 1000000,
                       "output": 32768
@@ -114,6 +114,9 @@ jobs:
             }
           }
           EOF
+
+          echo "OpenCode configuration:"
+          cat opencode.json
 
       - name: Run OpenCode agent
         env:
