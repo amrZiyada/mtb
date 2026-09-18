@@ -3,8 +3,8 @@ name: BookingLab Integration Agent Test
 on:
   workflow_dispatch:
     inputs:
-      source_run_id:
-        description: "Successful 4-Agent workflow run ID"
+      source_run_number:
+        description: "Successful 4-Agent workflow run number"
         required: true
         type: string
         default: "17"
@@ -32,63 +32,110 @@ jobs:
         with:
           node-version: 22
 
+      - name: Resolve source workflow run ID
+        id: source
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SOURCE_RUN_NUMBER: ${{ inputs.source_run_number }}
+        run: |
+          echo "========================================"
+          echo "RESOLVING SOURCE WORKFLOW RUN"
+          echo "========================================"
+
+          echo "Requested Run Number:"
+          echo "$SOURCE_RUN_NUMBER"
+
+          RUN_ID=$(gh api \
+            "repos/${GITHUB_REPOSITORY}/actions/workflows/multi-agent-cloud-test.yml/runs?event=workflow_dispatch&status=success&per_page=100" \
+            --jq ".workflow_runs[] | select(.run_number == ${SOURCE_RUN_NUMBER}) | .id" \
+            | head -1)
+
+          if [ -z "$RUN_ID" ]; then
+            echo
+            echo "ERROR: Successful workflow run #${SOURCE_RUN_NUMBER} was not found."
+            echo
+            echo "Available successful runs:"
+            gh api \
+              "repos/${GITHUB_REPOSITORY}/actions/workflows/multi-agent-cloud-test.yml/runs?event=workflow_dispatch&status=success&per_page=20" \
+              --jq '.workflow_runs[] | "Run #\(.run_number) | ID \(.id) | \(.head_branch) | \(.created_at)"'
+
+            exit 1
+          fi
+
+          echo
+          echo "Resolved workflow Run Number:"
+          echo "$SOURCE_RUN_NUMBER"
+
+          echo
+          echo "Actual workflow Run ID:"
+          echo "$RUN_ID"
+
+          echo "run_id=$RUN_ID" >> "$GITHUB_OUTPUT"
+
       - name: Show integration context
         run: |
           echo "========================================"
           echo "BOOKINGLAB INTEGRATION AGENT"
           echo "========================================"
-          echo "Source workflow run: ${{ inputs.source_run_id }}"
+
+          echo "Source workflow:"
+          echo "BookingLab 4-Agent Integration Test"
+
+          echo
+          echo "Source Run Number:"
+          echo "${{ inputs.source_run_number }}"
+
+          echo
+          echo "Source Run ID:"
+          echo "${{ steps.source.outputs.run_id }}"
+
           echo
           echo "Base branch:"
           git branch --show-current
+
           echo
           echo "Base commit:"
           git log -1 --oneline
+
           echo "========================================"
 
-      - name: Download Agent 1 patch
+      - name: Download all agent artifacts
         uses: actions/download-artifact@v5
         with:
-          name: Agent 1 - Nemotron - API-patch
-          path: artifacts/agent1
-          run-id: ${{ inputs.source_run_id }}
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Download Agent 2 patch
-        uses: actions/download-artifact@v5
-        with:
-          name: Agent 2 - GLM-5.3 - Dashboard-patch
-          path: artifacts/agent2
-          run-id: ${{ inputs.source_run_id }}
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Download Agent 3 patch
-        uses: actions/download-artifact@v5
-        with:
-          name: Agent 3 - Nemotron - Admin-patch
-          path: artifacts/agent3
-          run-id: ${{ inputs.source_run_id }}
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Download Agent 4 patch
-        uses: actions/download-artifact@v5
-        with:
-          name: Agent 4 - GLM-5.3 - Public-patch
-          path: artifacts/agent4
-          run-id: ${{ inputs.source_run_id }}
+          path: artifacts
+          run-id: ${{ steps.source.outputs.run_id }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Inspect downloaded artifacts
         run: |
           echo "========================================"
-          echo "DOWNLOADED PATCHES"
+          echo "DOWNLOADED AGENT ARTIFACTS"
           echo "========================================"
 
-          find artifacts -type f -maxdepth 3 -print
+          echo
+          echo "Artifact directory:"
+          find artifacts -maxdepth 3 -type f -print
 
           echo
-          echo "Patch sizes:"
-          find artifacts -type f -name "*.patch" -exec ls -lh {} \;
+          echo "Artifact sizes:"
+          find artifacts -type f -exec ls -lh {} \;
+
+          echo
+          echo "Patch files:"
+          find artifacts -type f -name "*.patch" -print
+
+          PATCH_COUNT=$(find artifacts -type f -name "*.patch" | wc -l)
+
+          echo
+          echo "Patch count: $PATCH_COUNT"
+
+          if [ "$PATCH_COUNT" -ne 4 ]; then
+            echo "ERROR: Expected exactly 4 agent patches."
+            exit 1
+          fi
+
+          echo
+          echo "All 4 agent patches downloaded successfully."
 
       - name: Create integration branch
         run: |
@@ -99,14 +146,15 @@ jobs:
 
       - name: Apply Agent 1 patch
         run: |
-          PATCH=$(find artifacts/agent1 -name "*.patch" -type f | head -1)
+          PATCH=$(find artifacts -path "*Agent 1*" -name "*.patch" -type f | head -1)
 
           if [ -z "$PATCH" ]; then
-            echo "ERROR: Agent 1 patch not found"
+            echo "ERROR: Agent 1 patch not found."
+            find artifacts -type f -name "*.patch"
             exit 1
           fi
 
-          echo "Applying:"
+          echo "Applying Agent 1:"
           echo "$PATCH"
 
           git apply --check "$PATCH"
@@ -114,14 +162,15 @@ jobs:
 
       - name: Apply Agent 2 patch
         run: |
-          PATCH=$(find artifacts/agent2 -name "*.patch" -type f | head -1)
+          PATCH=$(find artifacts -path "*Agent 2*" -name "*.patch" -type f | head -1)
 
           if [ -z "$PATCH" ]; then
-            echo "ERROR: Agent 2 patch not found"
+            echo "ERROR: Agent 2 patch not found."
+            find artifacts -type f -name "*.patch"
             exit 1
           fi
 
-          echo "Applying:"
+          echo "Applying Agent 2:"
           echo "$PATCH"
 
           git apply --check "$PATCH"
@@ -129,14 +178,15 @@ jobs:
 
       - name: Apply Agent 3 patch
         run: |
-          PATCH=$(find artifacts/agent3 -name "*.patch" -type f | head -1)
+          PATCH=$(find artifacts -path "*Agent 3*" -name "*.patch" -type f | head -1)
 
           if [ -z "$PATCH" ]; then
-            echo "ERROR: Agent 3 patch not found"
+            echo "ERROR: Agent 3 patch not found."
+            find artifacts -type f -name "*.patch"
             exit 1
           fi
 
-          echo "Applying:"
+          echo "Applying Agent 3:"
           echo "$PATCH"
 
           git apply --check "$PATCH"
@@ -144,14 +194,15 @@ jobs:
 
       - name: Apply Agent 4 patch
         run: |
-          PATCH=$(find artifacts/agent4 -name "*.patch" -type f | head -1)
+          PATCH=$(find artifacts -path "*Agent 4*" -name "*.patch" -type f | head -1)
 
           if [ -z "$PATCH" ]; then
-            echo "ERROR: Agent 4 patch not found"
+            echo "ERROR: Agent 4 patch not found."
+            find artifacts -type f -name "*.patch"
             exit 1
           fi
 
-          echo "Applying:"
+          echo "Applying Agent 4:"
           echo "$PATCH"
 
           git apply --check "$PATCH"
@@ -169,29 +220,20 @@ jobs:
           echo "Changed files:"
           git diff --name-only
 
-          EXPECTED="
-          api/src/index.ts
-          web/app/dashboard/page.tsx
-          web/app/admin/page.tsx
-          web/app/page.tsx
-          "
-
-          ACTUAL=$(git diff --name-only)
-
           for FILE in \
             "api/src/index.ts" \
             "web/app/dashboard/page.tsx" \
             "web/app/admin/page.tsx" \
             "web/app/page.tsx"
           do
-            if ! printf '%s\n' "$ACTUAL" | grep -Fxq "$FILE"; then
+            if ! git diff --name-only | grep -Fxq "$FILE"; then
               echo "ERROR: Expected file missing: $FILE"
               exit 1
             fi
           done
 
           echo
-          echo "All 4 expected files are present."
+          echo "All 4 expected BookingLab files are present."
 
       - name: Verify no unexpected tracked files changed
         run: |
@@ -204,16 +246,20 @@ jobs:
             || true)
 
           if [ -n "$UNEXPECTED" ]; then
+            echo
             echo "ERROR: Unexpected files changed:"
             echo "$UNEXPECTED"
             exit 1
           fi
 
+          echo
           echo "Only the four assigned BookingLab files changed."
 
       - name: Install API dependencies
         working-directory: api
         run: |
+          echo "Installing API dependencies..."
+
           if [ -f package-lock.json ]; then
             npm ci
           else
@@ -223,6 +269,8 @@ jobs:
       - name: Install Web dependencies
         working-directory: web
         run: |
+          echo "Installing Web dependencies..."
+
           if [ -f package-lock.json ]; then
             npm ci
           else
@@ -239,6 +287,9 @@ jobs:
           npm exec --no -- tsc --version
           npm exec --no -- tsc --noEmit
 
+          echo
+          echo "API validation passed."
+
       - name: Validate Web TypeScript
         working-directory: web
         run: |
@@ -249,25 +300,37 @@ jobs:
           npm exec --no -- tsc --version
           npm exec --no -- tsc --noEmit
 
-      - name: Show final integrated diff
+          echo
+          echo "Web validation passed."
+
+      - name: Final integration checks
         run: |
           echo "========================================"
-          echo "FINAL INTEGRATED DIFF"
+          echo "FINAL INTEGRATION CHECKS"
           echo "========================================"
 
+          echo
+          echo "Diff statistics:"
           git diff --stat
 
           echo
+          echo "Checking patch formatting:"
           git diff --check
 
           echo
-          echo "Integration test completed successfully."
+          echo "Final changed files:"
+          git diff --name-only
 
-      - name: Create integration artifact
+          echo
+          echo "========================================"
+          echo "BOOKINGLAB INTEGRATION TEST PASSED"
+          echo "========================================"
+
+      - name: Create integrated patch artifact
         run: |
           git diff > integrated-bookinglab.patch
 
-          echo "Created integrated patch:"
+          echo "Integrated patch:"
           ls -lh integrated-bookinglab.patch
 
       - name: Upload integrated patch
