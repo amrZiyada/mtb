@@ -19,6 +19,7 @@ jobs:
           - agent: "1-Nemotron"
             model: "nemotron-3-ultra-550b-a55b"
             task: "Inspect the API architecture, especially api/src/index.ts and the database/migration structure."
+
           - agent: "2-DeepSeek"
             model: "deepseek-v4-flash-0731"
             task: "Inspect the frontend architecture, especially web/app and the Next.js structure."
@@ -63,7 +64,7 @@ jobs:
                     }
                   },
                   "deepseek-v4-flash-0731": {
-                    "name": "nvidia/deepseek-v4-flash-0731",
+                    "name": "deepseek-ai/deepseek-v4-flash-0731",
                     "limit": {
                       "context": 1000000,
                       "output": 32768
@@ -85,11 +86,11 @@ jobs:
         run: |
           echo "========================================"
           echo "Agent: $AGENT"
-          echo "Model: $MODEL"
+          echo "Model: nvidia/$MODEL"
           echo "========================================"
 
           opencode run \
-            --model "nvidia/nvidia/$MODEL" \
+            --model "nvidia/$MODEL" \
             --print-logs \
             "You are $AGENT in a MULTI-AGENT CLOUD TEST for the BookingLab repository.
 
