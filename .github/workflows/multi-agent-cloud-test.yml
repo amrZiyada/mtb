@@ -16,26 +16,42 @@ jobs:
         env:
           NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
         run: |
-          echo "Testing z-ai/glm-5-3-flash..."
+          echo "========================================"
+          echo "Testing NVIDIA GLM-5.3-Flash"
+          echo "========================================"
 
-          curl -sS \
+          HTTP_STATUS=$(curl -sS \
+            -o glm-response.json \
+            -w "%{http_code}" \
             --max-time 180 \
             -X POST \
             "https://integrate.api.nvidia.com/v1/chat/completions" \
             -H "Authorization: Bearer $NVIDIA_API_KEY" \
             -H "Content-Type: application/json" \
             -d '{
-              "model": "z-ai/glm-5-3-flash",
+              "model": "z-ai/glm-5.3-flash",
               "messages": [
                 {
                   "role": "user",
                   "content": "Reply with exactly: GLM TEST OK"
                 }
-              ]
-            }' \
-            | tee glm-response.json
+              ],
+              "max_tokens": 20,
+              "stream": false
+            }')
 
           echo
-          echo "========================================"
-          echo "GLM TEST COMPLETE"
-          echo "========================================"
+          echo "HTTP_STATUS=$HTTP_STATUS"
+          echo
+          echo "NVIDIA RESPONSE:"
+          cat glm-response.json
+          echo
+
+          if [ "$HTTP_STATUS" -lt 200 ] || [ "$HTTP_STATUS" -ge 300 ]; then
+            echo
+            echo "GLM MODEL TEST FAILED"
+            exit 1
+          fi
+
+          echo
+          echo "GLM MODEL TEST PASSED"
