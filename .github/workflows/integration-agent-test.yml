@@ -1,4 +1,4 @@
-name: BookingLab Integration Agent Test
+name: BookingLab Integration Agent
 
 on:
   workflow_dispatch:
@@ -10,14 +10,15 @@ on:
         default: "17"
 
 permissions:
-  contents: read
+  contents: write
   actions: read
+  pull-requests: write
 
 jobs:
   integration:
     name: Integration Agent
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 30
 
     steps:
       - name: Checkout main
@@ -25,7 +26,7 @@ jobs:
         with:
           ref: main
           fetch-depth: 1
-          persist-credentials: false
+          persist-credentials: true
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
@@ -51,23 +52,16 @@ jobs:
             | head -1)
 
           if [ -z "$RUN_ID" ]; then
-            echo
-            echo "ERROR: Successful workflow run #${SOURCE_RUN_NUMBER} was not found."
-            echo
-            echo "Available successful runs:"
-            gh api \
-              "repos/${GITHUB_REPOSITORY}/actions/workflows/multi-agent-cloud-test.yml/runs?event=workflow_dispatch&status=success&per_page=20" \
-              --jq '.workflow_runs[] | "Run #\(.run_number) | ID \(.id) | \(.head_branch) | \(.created_at)"'
-
+            echo "ERROR: Successful source run not found."
             exit 1
           fi
 
           echo
-          echo "Resolved workflow Run Number:"
+          echo "Source Run Number:"
           echo "$SOURCE_RUN_NUMBER"
 
           echo
-          echo "Actual workflow Run ID:"
+          echo "Actual Run ID:"
           echo "$RUN_ID"
 
           echo "run_id=$RUN_ID" >> "$GITHUB_OUTPUT"
@@ -78,11 +72,7 @@ jobs:
           echo "BOOKINGLAB INTEGRATION AGENT"
           echo "========================================"
 
-          echo "Source workflow:"
-          echo "BookingLab 4-Agent Integration Test"
-
-          echo
-          echo "Source Run Number:"
+          echo "Source Run:"
           echo "${{ inputs.source_run_number }}"
 
           echo
@@ -90,11 +80,11 @@ jobs:
           echo "${{ steps.source.outputs.run_id }}"
 
           echo
-          echo "Base branch:"
+          echo "Current branch:"
           git branch --show-current
 
           echo
-          echo "Base commit:"
+          echo "Main commit:"
           git log -1 --oneline
 
           echo "========================================"
@@ -106,22 +96,12 @@ jobs:
           run-id: ${{ steps.source.outputs.run_id }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Inspect downloaded artifacts
+      - name: Verify four agent patches
         run: |
           echo "========================================"
-          echo "DOWNLOADED AGENT ARTIFACTS"
+          echo "VERIFYING AGENT PATCHES"
           echo "========================================"
 
-          echo
-          echo "Artifact directory:"
-          find artifacts -maxdepth 3 -type f -print
-
-          echo
-          echo "Artifact sizes:"
-          find artifacts -type f -exec ls -lh {} \;
-
-          echo
-          echo "Patch files:"
           find artifacts -type f -name "*.patch" -print
 
           PATCH_COUNT=$(find artifacts -type f -name "*.patch" | wc -l)
@@ -130,31 +110,31 @@ jobs:
           echo "Patch count: $PATCH_COUNT"
 
           if [ "$PATCH_COUNT" -ne 4 ]; then
-            echo "ERROR: Expected exactly 4 agent patches."
+            echo "ERROR: Expected exactly 4 patches."
             exit 1
           fi
 
           echo
-          echo "All 4 agent patches downloaded successfully."
+          echo "All 4 patches found."
 
       - name: Create integration branch
         run: |
-          git switch -c cloud-test/integration-agent
+          BRANCH="cloud-agent/integration-${{ inputs.source_run_number }}-${{ github.run_id }}"
 
           echo "Integration branch:"
-          git branch --show-current
+          echo "$BRANCH"
+
+          git switch -c "$BRANCH"
+
+          echo "branch=$BRANCH" >> "$GITHUB_ENV"
 
       - name: Apply Agent 1 patch
         run: |
           PATCH=$(find artifacts -path "*Agent 1*" -name "*.patch" -type f | head -1)
 
-          if [ -z "$PATCH" ]; then
-            echo "ERROR: Agent 1 patch not found."
-            find artifacts -type f -name "*.patch"
-            exit 1
-          fi
+          test -n "$PATCH"
 
-          echo "Applying Agent 1:"
+          echo "Applying:"
           echo "$PATCH"
 
           git apply --check "$PATCH"
@@ -164,13 +144,9 @@ jobs:
         run: |
           PATCH=$(find artifacts -path "*Agent 2*" -name "*.patch" -type f | head -1)
 
-          if [ -z "$PATCH" ]; then
-            echo "ERROR: Agent 2 patch not found."
-            find artifacts -type f -name "*.patch"
-            exit 1
-          fi
+          test -n "$PATCH"
 
-          echo "Applying Agent 2:"
+          echo "Applying:"
           echo "$PATCH"
 
           git apply --check "$PATCH"
@@ -180,13 +156,9 @@ jobs:
         run: |
           PATCH=$(find artifacts -path "*Agent 3*" -name "*.patch" -type f | head -1)
 
-          if [ -z "$PATCH" ]; then
-            echo "ERROR: Agent 3 patch not found."
-            find artifacts -type f -name "*.patch"
-            exit 1
-          fi
+          test -n "$PATCH"
 
-          echo "Applying Agent 3:"
+          echo "Applying:"
           echo "$PATCH"
 
           git apply --check "$PATCH"
@@ -196,29 +168,30 @@ jobs:
         run: |
           PATCH=$(find artifacts -path "*Agent 4*" -name "*.patch" -type f | head -1)
 
-          if [ -z "$PATCH" ]; then
-            echo "ERROR: Agent 4 patch not found."
-            find artifacts -type f -name "*.patch"
-            exit 1
-          fi
+          test -n "$PATCH"
 
-          echo "Applying Agent 4:"
+          echo "Applying:"
           echo "$PATCH"
 
           git apply --check "$PATCH"
           git apply "$PATCH"
 
-      - name: Verify integrated diff
+      - name: Verify integrated files
         run: |
           echo "========================================"
-          echo "INTEGRATED DIFF"
+          echo "VERIFYING INTEGRATED FILES"
           echo "========================================"
 
-          git status --short
-
-          echo
-          echo "Changed files:"
           git diff --name-only
+
+          EXPECTED_FILES="
+          api/src/index.ts
+          web/app/dashboard/page.tsx
+          web/app/admin/page.tsx
+          web/app/page.tsx
+          "
+
+          ACTUAL=$(git diff --name-only)
 
           for FILE in \
             "api/src/index.ts" \
@@ -226,40 +199,28 @@ jobs:
             "web/app/admin/page.tsx" \
             "web/app/page.tsx"
           do
-            if ! git diff --name-only | grep -Fxq "$FILE"; then
-              echo "ERROR: Expected file missing: $FILE"
+            if ! printf '%s\n' "$ACTUAL" | grep -Fxq "$FILE"; then
+              echo "ERROR: Missing expected file: $FILE"
               exit 1
             fi
           done
 
-          echo
-          echo "All 4 expected BookingLab files are present."
-
-      - name: Verify no unexpected tracked files changed
-        run: |
-          echo "========================================"
-          echo "STRICT FILE CHECK"
-          echo "========================================"
-
-          UNEXPECTED=$(git diff --name-only | grep -Ev \
+          UNEXPECTED=$(printf '%s\n' "$ACTUAL" | grep -Ev \
             '^(api/src/index\.ts|web/app/dashboard/page\.tsx|web/app/admin/page\.tsx|web/app/page\.tsx)$' \
             || true)
 
           if [ -n "$UNEXPECTED" ]; then
-            echo
-            echo "ERROR: Unexpected files changed:"
+            echo "ERROR: Unexpected files:"
             echo "$UNEXPECTED"
             exit 1
           fi
 
           echo
-          echo "Only the four assigned BookingLab files changed."
+          echo "Exactly four BookingLab files changed."
 
       - name: Install API dependencies
         working-directory: api
         run: |
-          echo "Installing API dependencies..."
-
           if [ -f package-lock.json ]; then
             npm ci
           else
@@ -269,8 +230,6 @@ jobs:
       - name: Install Web dependencies
         working-directory: web
         run: |
-          echo "Installing Web dependencies..."
-
           if [ -f package-lock.json ]; then
             npm ci
           else
@@ -281,61 +240,140 @@ jobs:
         working-directory: api
         run: |
           echo "========================================"
-          echo "API TYPESCRIPT VALIDATION"
+          echo "API VALIDATION"
           echo "========================================"
 
           npm exec --no -- tsc --version
           npm exec --no -- tsc --noEmit
 
-          echo
-          echo "API validation passed."
+          echo "API validation PASSED."
 
       - name: Validate Web TypeScript
         working-directory: web
         run: |
           echo "========================================"
-          echo "WEB TYPESCRIPT VALIDATION"
+          echo "WEB VALIDATION"
           echo "========================================"
 
           npm exec --no -- tsc --version
           npm exec --no -- tsc --noEmit
 
-          echo
-          echo "Web validation passed."
+          echo "Web validation PASSED."
 
-      - name: Final integration checks
+      - name: Final diff check
         run: |
           echo "========================================"
-          echo "FINAL INTEGRATION CHECKS"
+          echo "FINAL DIFF CHECK"
           echo "========================================"
 
-          echo
-          echo "Diff statistics:"
-          git diff --stat
-
-          echo
-          echo "Checking patch formatting:"
           git diff --check
 
           echo
-          echo "Final changed files:"
-          git diff --name-only
+          git diff --stat
 
           echo
-          echo "========================================"
-          echo "BOOKINGLAB INTEGRATION TEST PASSED"
-          echo "========================================"
+          echo "Changed files:"
+          git diff --name-only
 
-      - name: Create integrated patch artifact
+      - name: Commit integrated changes
         run: |
-          git diff > integrated-bookinglab.patch
+          echo "========================================"
+          echo "CREATING INTEGRATION COMMIT"
+          echo "========================================"
 
-          echo "Integrated patch:"
-          ls -lh integrated-bookinglab.patch
+          git config user.name "BookingLab Cloud Integration Agent"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-      - name: Upload integrated patch
-        uses: actions/upload-artifact@v6
-        with:
-          name: BookingLab-integrated-patch
-          path: integrated-bookinglab.patch
-          if-no-files-found: error
+          git add \
+            api/src/index.ts \
+            web/app/dashboard/page.tsx \
+            web/app/admin/page.tsx \
+            web/app/page.tsx
+
+          git commit \
+            -m "chore: integrate BookingLab cloud agents"
+
+          echo
+          echo "Created commit:"
+          git log -1 --oneline
+
+      - name: Push integration branch
+        run: |
+          echo "========================================"
+          echo "PUSHING INTEGRATION BRANCH"
+          echo "========================================"
+
+          git push --set-upstream origin "$branch"
+
+          echo
+          echo "Branch pushed:"
+          echo "$branch"
+
+      - name: Create Pull Request
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "========================================"
+          echo "CREATING PULL REQUEST"
+          echo "========================================"
+
+          PR_URL=$(gh pr create \
+            --base main \
+            --head "$branch" \
+            --title "chore: integrate BookingLab cloud agents" \
+            --body "$(cat <<'EOF'
+          ## BookingLab Cloud Agent Integration
+
+          This PR was created automatically by the BookingLab Integration Agent.
+
+          ### Source
+          - 4-agent cloud coding run: #${{ inputs.source_run_number }}
+
+          ### Agents
+          - Agent 1 — Nemotron 3 Ultra 550B — API
+          - Agent 2 — GLM-5.3 — Dashboard
+          - Agent 3 — Nemotron 3 Ultra 550B — Admin
+          - Agent 4 — GLM-5.3 — Public
+
+          ### Validation
+          - All 4 agent patches downloaded successfully
+          - All 4 patches applied successfully
+          - Strict file isolation verified
+          - API TypeScript validation passed
+          - Web TypeScript validation passed
+          - `git diff --check` passed
+
+          ### Safety
+          - No direct changes were made to `main`
+          - Changes are isolated in this branch
+          - Human review is required before merge
+          EOF
+          )")
+
+          echo
+          echo "Pull Request:"
+          echo "$PR_URL"
+
+          echo "pr_url=$PR_URL" >> "$GITHUB_ENV"
+
+      - name: Final result
+        run: |
+          echo "========================================"
+          echo "BOOKINGLAB CLOUD INTEGRATION COMPLETE"
+          echo "========================================"
+
+          echo
+          echo "Source Run:"
+          echo "#${{ inputs.source_run_number }}"
+
+          echo
+          echo "Integration Branch:"
+          echo "$branch"
+
+          echo
+          echo "Pull Request:"
+          echo "$pr_url"
+
+          echo
+          echo "MAIN WAS NOT MODIFIED."
+          echo "========================================"
