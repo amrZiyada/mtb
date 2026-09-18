@@ -13,6 +13,7 @@ permissions:
 env:
   NVIDIA_BASE_URL: https://integrate.api.nvidia.com/v1
   OPENCODE_VERSION: 1.18.31
+  OPENCODE_MODEL: nvidia/nvidia/nemotron-3-ultra-550b-a55b
 
 jobs:
 
@@ -20,6 +21,41 @@ jobs:
     name: Agent 1 - API - Nemotron Ultra
     runs-on: ubuntu-latest
     timeout-minutes: 15
+
+    env:
+      NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+      NVIDIA_BASE_URL: ${{ env.NVIDIA_BASE_URL }}
+      AGENT_PROMPT: |
+        You are Agent 1 for the BookingLab production repository.
+
+        ONLY modify:
+        api/src/index.ts
+
+        Do not modify any other file.
+        Do not create files.
+        Do not commit or push.
+
+        TASK:
+        Implement and verify the pending BookingLab reservation edit/details consistency work in api/src/index.ts.
+
+        Requirements:
+        1. Preserve all existing authentication, authorization, CSRF, rate limiting, session handling and validation.
+        2. Status workflow remains exactly:
+           PENDING -> ASSIGNED -> ACCEPTED -> CONFIRMED -> DONE
+           There is NO CANCELLED status.
+        3. Preserve original_total after reservation creation. Editing must not overwrite historical original_total.
+        4. Authorized reservation edits must correctly handle:
+           patient_name, age, gender, phone, address, preferred_at.
+        5. Address supplied by an authorized edit must persist.
+        6. Preserve original selected tests separately from extra tests.
+        7. Do not alter commission rules.
+        8. Preserve staff edit restrictions and finalized-record protection.
+        9. Preserve admin privileges.
+        10. Inspect existing code first and make the smallest safe production-quality changes.
+        11. Run the relevant TypeScript check.
+
+        Actually edit api/src/index.ts. Do not merely describe changes.
+        At the end, print a short summary and validation result.
 
     steps:
       - name: Checkout
@@ -60,61 +96,19 @@ jobs:
           }
           JSON
 
-      - name: Run API agent
-        env:
-          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
-          NVIDIA_BASE_URL: ${{ env.NVIDIA_BASE_URL }}
+      - name: Run Nemotron Ultra
         run: |
           set -euo pipefail
-
-          cat > /tmp/prompt.txt <<'PROMPT'
-          You are Agent 1 for the BookingLab production repository.
-
-          ONLY modify:
-          api/src/index.ts
-
-          Do not modify any other file.
-          Do not create files.
-          Do not commit or push.
-
-          TASK:
-          Implement and verify the pending BookingLab reservation edit/details consistency work in api/src/index.ts.
-
-          Requirements:
-          1. Preserve all existing authentication, authorization, CSRF, rate limiting, session handling and validation.
-          2. Status workflow remains exactly:
-          PENDING -> ASSIGNED -> ACCEPTED -> CONFIRMED -> DONE
-          There is NO CANCELLED status.
-          3. Preserve original_total after reservation creation. Editing must not overwrite historical original_total.
-          4. Authorized reservation edits must correctly handle:
-          patient_name, age, gender, phone, address, preferred_at.
-          5. Address supplied by an authorized edit must persist.
-          6. Preserve original selected tests separately from extra tests.
-          7. Do not alter commission rules.
-          8. Preserve staff edit restrictions and finalized-record protection.
-          9. Preserve admin privileges.
-          10. Inspect existing code first and make the smallest safe production-quality changes.
-          11. Run the relevant TypeScript check.
-
-          Actually edit api/src/index.ts. Do not merely describe changes.
-          PROMPT
-
-          timeout 720s opencode run \
-            --model nvidia/nvidia/nemotron-3-ultra-550b-a55b \
-            --print-logs \
-            "$(cat /tmp/prompt.txt)"
+          timeout 720s opencode run             --model "${OPENCODE_MODEL}"             --print-logs             "${AGENT_PROMPT}"
 
       - name: Clean generated files and validate scope
         run: |
           set -euo pipefail
-
           rm -f opencode.json
           rm -f api/tsconfig.tsbuildinfo
           rm -f web/tsconfig.tsbuildinfo
-
           git restore --worktree -- api/package-lock.json web/package-lock.json 2>/dev/null || true
 
-          echo "Agent changes:"
           git status --short
 
           bad="$(git status --porcelain | awk '{print $2}' | grep -v '^api/src/index.ts$' || true)"
@@ -127,9 +121,7 @@ jobs:
 
       - name: TypeScript check
         working-directory: api
-        run: |
-          set -euo pipefail
-          npx tsc --noEmit
+        run: npx tsc --noEmit
 
       - name: Create patch
         run: |
@@ -146,9 +138,43 @@ jobs:
 
 
   dashboard-agent:
-    name: Agent 2 - Dashboard - Nemotron Super
+    name: Agent 2 - Dashboard - Nemotron Ultra
     runs-on: ubuntu-latest
     timeout-minutes: 15
+
+    env:
+      NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+      NVIDIA_BASE_URL: ${{ env.NVIDIA_BASE_URL }}
+      AGENT_PROMPT: |
+        You are Agent 2 for the BookingLab production repository.
+
+        ONLY modify:
+        web/app/dashboard/page.tsx
+
+        Do not modify any other file.
+        Do not create files.
+        Do not commit or push.
+
+        TASK:
+        Bring the staff dashboard reservation details/edit UI into consistency with the current BookingLab reservation model and API.
+
+        Requirements:
+        1. Preserve staff authentication, sessions, roles and permissions.
+        2. Staff must only edit data authorized by the API.
+        3. Reservation details must display address when present.
+        4. Edit must correctly load/save:
+           patient_name, age, gender, phone, address, preferred_at.
+        5. Preserve original selected tests separately from extra tests.
+        6. Preserve original test metadata when already available. Do not invent data.
+        7. Preserve all existing status behavior.
+        8. Preserve the authorized assigned DOCTOR/REP CONFIRMED-edit permission.
+        9. Do not change commissions.
+        10. Preserve responsive/mobile behavior.
+        11. Make the smallest safe production-quality changes.
+        12. Run the relevant TypeScript check.
+
+        Actually edit web/app/dashboard/page.tsx. Do not merely describe changes.
+        At the end, print a short summary and validation result.
 
     steps:
       - name: Checkout
@@ -166,7 +192,7 @@ jobs:
           cat > opencode.json <<'JSON'
           {
             "$schema": "https://opencode.ai/config.json",
-            "model": "nvidia/nvidia/nemotron-3-super-120b-a12b",
+            "model": "nvidia/nvidia/nemotron-3-ultra-550b-a55b",
             "provider": {
               "nvidia": {
                 "npm": "@ai-sdk/openai-compatible",
@@ -176,8 +202,8 @@ jobs:
                   "apiKey": "{env:NVIDIA_API_KEY}"
                 },
                 "models": {
-                  "nemotron-3-super-120b-a12b": {
-                    "name": "nvidia/nemotron-3-super-120b-a12b",
+                  "nemotron-3-ultra-550b-a55b": {
+                    "name": "nvidia/nemotron-3-ultra-550b-a55b",
                     "limit": {
                       "context": 1000000,
                       "output": 32768
@@ -189,60 +215,19 @@ jobs:
           }
           JSON
 
-      - name: Run Dashboard agent
-        env:
-          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
-          NVIDIA_BASE_URL: ${{ env.NVIDIA_BASE_URL }}
+      - name: Run Nemotron Ultra
         run: |
           set -euo pipefail
-
-          cat > /tmp/prompt.txt <<'PROMPT'
-          You are Agent 2 for the BookingLab production repository.
-
-          ONLY modify:
-          web/app/dashboard/page.tsx
-
-          Do not modify any other file.
-          Do not create files.
-          Do not commit or push.
-
-          TASK:
-          Bring the staff dashboard reservation details/edit UI into consistency with the current BookingLab reservation model and API.
-
-          Requirements:
-          1. Preserve staff authentication, sessions, roles and permissions.
-          2. Staff must only edit data authorized by the API.
-          3. Reservation details must display address when present.
-          4. Edit must correctly load/save:
-          patient_name, age, gender, phone, address, preferred_at.
-          5. Preserve original selected tests separately from extra tests.
-          6. Preserve original test metadata when already available. Do not invent data.
-          7. Preserve all existing status behavior.
-          8. Preserve the authorized assigned DOCTOR/REP CONFIRMED-edit permission.
-          9. Do not change commissions.
-          10. Preserve responsive/mobile behavior.
-          11. Make the smallest safe production-quality changes.
-          12. Run the relevant TypeScript check.
-
-          Actually edit web/app/dashboard/page.tsx. Do not merely describe changes.
-          PROMPT
-
-          timeout 720s opencode run \
-            --model nvidia/nvidia/nemotron-3-super-120b-a12b \
-            --print-logs \
-            "$(cat /tmp/prompt.txt)"
+          timeout 720s opencode run             --model "${OPENCODE_MODEL}"             --print-logs             "${AGENT_PROMPT}"
 
       - name: Clean generated files and validate scope
         run: |
           set -euo pipefail
-
           rm -f opencode.json
-          rm -f web/tsconfig.tsbuildinfo
           rm -f api/tsconfig.tsbuildinfo
-
+          rm -f web/tsconfig.tsbuildinfo
           git restore --worktree -- api/package-lock.json web/package-lock.json 2>/dev/null || true
 
-          echo "Agent changes:"
           git status --short
 
           bad="$(git status --porcelain | awk '{print $2}' | grep -v '^web/app/dashboard/page.tsx$' || true)"
@@ -255,9 +240,7 @@ jobs:
 
       - name: TypeScript check
         working-directory: web
-        run: |
-          set -euo pipefail
-          npx tsc --noEmit
+        run: npx tsc --noEmit
 
       - name: Create patch
         run: |
@@ -278,6 +261,43 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
+    env:
+      NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+      NVIDIA_BASE_URL: ${{ env.NVIDIA_BASE_URL }}
+      AGENT_PROMPT: |
+        You are Agent 3 for the BookingLab production repository.
+
+        ONLY modify:
+        web/app/admin/page.tsx
+
+        Do not modify any other file.
+        Do not create files.
+        Do not commit or push.
+
+        TASK:
+        Bring the admin reservation details/edit UI into consistency with the current BookingLab reservation model and API.
+
+        Requirements:
+        1. Preserve admin authentication and authorization.
+        2. Admin retains existing reservation editing privileges subject to finalized-record protection.
+        3. Reservation details must display address when present.
+        4. Edit must correctly load/save:
+           patient_name, age, gender, phone, address, preferred_at.
+        5. Preserve original_total. Historical original pricing must not be recalculated by patient-data editing.
+        6. Preserve original selected tests separately from extra tests.
+        7. Display existing original test metadata without inventing values.
+        8. Preserve status workflow exactly:
+           PENDING -> ASSIGNED -> ACCEPTED -> CONFIRMED -> DONE
+        9. There is NO CANCELLED status.
+        10. Preserve assignment and role restrictions.
+        11. Do not change commissions.
+        12. Preserve responsive/mobile behavior.
+        13. Make the smallest safe production-quality changes.
+        14. Run the relevant TypeScript check.
+
+        Actually edit web/app/admin/page.tsx. Do not merely describe changes.
+        At the end, print a short summary and validation result.
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -317,63 +337,19 @@ jobs:
           }
           JSON
 
-      - name: Run Admin agent
-        env:
-          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
-          NVIDIA_BASE_URL: ${{ env.NVIDIA_BASE_URL }}
+      - name: Run Nemotron Ultra
         run: |
           set -euo pipefail
-
-          cat > /tmp/prompt.txt <<'PROMPT'
-          You are Agent 3 for the BookingLab production repository.
-
-          ONLY modify:
-          web/app/admin/page.tsx
-
-          Do not modify any other file.
-          Do not create files.
-          Do not commit or push.
-
-          TASK:
-          Bring the admin reservation details/edit UI into consistency with the current BookingLab reservation model and API.
-
-          Requirements:
-          1. Preserve admin authentication and authorization.
-          2. Admin retains existing reservation editing privileges subject to finalized-record protection.
-          3. Reservation details must display address when present.
-          4. Edit must correctly load/save:
-          patient_name, age, gender, phone, address, preferred_at.
-          5. Preserve original_total. Historical original pricing must not be recalculated by patient-data editing.
-          6. Preserve original selected tests separately from extra tests.
-          7. Display existing original test metadata without inventing values.
-          8. Preserve status workflow exactly:
-          PENDING -> ASSIGNED -> ACCEPTED -> CONFIRMED -> DONE
-          9. There is NO CANCELLED status.
-          10. Preserve assignment and role restrictions.
-          11. Do not change commissions.
-          12. Preserve responsive/mobile behavior.
-          13. Make the smallest safe production-quality changes.
-          14. Run the relevant TypeScript check.
-
-          Actually edit web/app/admin/page.tsx. Do not merely describe changes.
-          PROMPT
-
-          timeout 720s opencode run \
-            --model nvidia/nvidia/nemotron-3-ultra-550b-a55b \
-            --print-logs \
-            "$(cat /tmp/prompt.txt)"
+          timeout 720s opencode run             --model "${OPENCODE_MODEL}"             --print-logs             "${AGENT_PROMPT}"
 
       - name: Clean generated files and validate scope
         run: |
           set -euo pipefail
-
           rm -f opencode.json
-          rm -f web/tsconfig.tsbuildinfo
           rm -f api/tsconfig.tsbuildinfo
-
+          rm -f web/tsconfig.tsbuildinfo
           git restore --worktree -- api/package-lock.json web/package-lock.json 2>/dev/null || true
 
-          echo "Agent changes:"
           git status --short
 
           bad="$(git status --porcelain | awk '{print $2}' | grep -v '^web/app/admin/page.tsx$' || true)"
@@ -386,9 +362,7 @@ jobs:
 
       - name: TypeScript check
         working-directory: web
-        run: |
-          set -euo pipefail
-          npx tsc --noEmit
+        run: npx tsc --noEmit
 
       - name: Create patch
         run: |
@@ -405,9 +379,44 @@ jobs:
 
 
   public-agent:
-    name: Agent 4 - Public Booking - Nemotron Super
+    name: Agent 4 - Public Booking - Nemotron Ultra
     runs-on: ubuntu-latest
     timeout-minutes: 15
+
+    env:
+      NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+      NVIDIA_BASE_URL: ${{ env.NVIDIA_BASE_URL }}
+      AGENT_PROMPT: |
+        You are Agent 4 for the BookingLab production repository.
+
+        ONLY modify:
+        web/app/page.tsx
+
+        Do not modify any other file.
+        Do not create files.
+        Do not commit or push.
+
+        TASK:
+        Bring the public booking flow into consistency with the current BookingLab reservation test model.
+
+        Requirements:
+        1. Preserve test search behavior. Do not preload the complete test catalog.
+        2. Preserve cart behavior: each test can only be added once.
+        3. Preserve current pricing behavior.
+        4. When creating a reservation, preserve selected original test metadata already available in selected test data, including code/name/price.
+        5. Do not invent prices or metadata.
+        6. Preserve original selected tests separately from extra tests.
+        7. Preserve patient fields:
+           patient_name, age, gender, phone, address, preferred_at.
+        8. Public booking remains unauthenticated.
+        9. Preserve duplicate-pending reservation behavior.
+        10. Preserve existing UI/UX and mobile responsiveness.
+        11. Do not modify API files.
+        12. Make the smallest safe production-quality changes.
+        13. Run the relevant TypeScript check.
+
+        Actually edit web/app/page.tsx. Do not merely describe changes.
+        At the end, print a short summary and validation result.
 
     steps:
       - name: Checkout
@@ -425,7 +434,7 @@ jobs:
           cat > opencode.json <<'JSON'
           {
             "$schema": "https://opencode.ai/config.json",
-            "model": "nvidia/nvidia/nemotron-3-super-120b-a12b",
+            "model": "nvidia/nvidia/nemotron-3-ultra-550b-a55b",
             "provider": {
               "nvidia": {
                 "npm": "@ai-sdk/openai-compatible",
@@ -435,8 +444,8 @@ jobs:
                   "apiKey": "{env:NVIDIA_API_KEY}"
                 },
                 "models": {
-                  "nemotron-3-super-120b-a12b": {
-                    "name": "nvidia/nemotron-3-super-120b-a12b",
+                  "nemotron-3-ultra-550b-a55b": {
+                    "name": "nvidia/nemotron-3-ultra-550b-a55b",
                     "limit": {
                       "context": 1000000,
                       "output": 32768
@@ -448,61 +457,19 @@ jobs:
           }
           JSON
 
-      - name: Run Public booking agent
-        env:
-          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
-          NVIDIA_BASE_URL: ${{ env.NVIDIA_BASE_URL }}
+      - name: Run Nemotron Ultra
         run: |
           set -euo pipefail
-
-          cat > /tmp/prompt.txt <<'PROMPT'
-          You are Agent 4 for the BookingLab production repository.
-
-          ONLY modify:
-          web/app/page.tsx
-
-          Do not modify any other file.
-          Do not create files.
-          Do not commit or push.
-
-          TASK:
-          Bring the public booking flow into consistency with the current BookingLab reservation test model.
-
-          Requirements:
-          1. Preserve test search behavior. Do not preload the complete test catalog.
-          2. Preserve cart behavior: each test can only be added once.
-          3. Preserve current pricing behavior.
-          4. When creating a reservation, preserve selected original test metadata already available in selected test data, including code/name/price.
-          5. Do not invent prices or metadata.
-          6. Preserve original selected tests separately from extra tests.
-          7. Preserve patient fields:
-          patient_name, age, gender, phone, address, preferred_at.
-          8. Public booking remains unauthenticated.
-          9. Preserve duplicate-pending reservation behavior.
-          10. Preserve existing UI/UX and mobile responsiveness.
-          11. Do not modify API files.
-          12. Make the smallest safe production-quality changes.
-          13. Run the relevant TypeScript check.
-
-          Actually edit web/app/page.tsx. Do not merely describe changes.
-          PROMPT
-
-          timeout 720s opencode run \
-            --model nvidia/nvidia/nemotron-3-super-120b-a12b \
-            --print-logs \
-            "$(cat /tmp/prompt.txt)"
+          timeout 720s opencode run             --model "${OPENCODE_MODEL}"             --print-logs             "${AGENT_PROMPT}"
 
       - name: Clean generated files and validate scope
         run: |
           set -euo pipefail
-
           rm -f opencode.json
-          rm -f web/tsconfig.tsbuildinfo
           rm -f api/tsconfig.tsbuildinfo
-
+          rm -f web/tsconfig.tsbuildinfo
           git restore --worktree -- api/package-lock.json web/package-lock.json 2>/dev/null || true
 
-          echo "Agent changes:"
           git status --short
 
           bad="$(git status --porcelain | awk '{print $2}' | grep -v '^web/app/page.tsx$' || true)"
@@ -515,9 +482,7 @@ jobs:
 
       - name: TypeScript check
         working-directory: web
-        run: |
-          set -euo pipefail
-          npx tsc --noEmit
+        run: npx tsc --noEmit
 
       - name: Create patch
         run: |
@@ -591,29 +556,21 @@ jobs:
 
       - name: Validate API TypeScript
         working-directory: api
-        run: |
-          set -euo pipefail
-          npx tsc --noEmit
+        run: npx tsc --noEmit
 
       - name: Validate Web TypeScript
         working-directory: web
-        run: |
-          set -euo pipefail
-          npx tsc --noEmit
+        run: npx tsc --noEmit
 
       - name: Build Web
         working-directory: web
-        run: |
-          set -euo pipefail
-          npm run build
+        run: npm run build
 
       - name: Clean generated files
         run: |
           set -euo pipefail
-
           rm -f api/tsconfig.tsbuildinfo
           rm -f web/tsconfig.tsbuildinfo
-
           git restore --worktree -- api/package-lock.json web/package-lock.json 2>/dev/null || true
 
       - name: Final scope check
@@ -637,11 +594,7 @@ jobs:
           git config user.name "BookingLab Cloud Agent"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          git add \
-            api/src/index.ts \
-            web/app/admin/page.tsx \
-            web/app/dashboard/page.tsx \
-            web/app/page.tsx
+          git add             api/src/index.ts             web/app/admin/page.tsx             web/app/dashboard/page.tsx             web/app/page.tsx
 
           if git diff --cached --quiet; then
             echo "::error::No integrated changes to commit"
