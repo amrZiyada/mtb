@@ -89,26 +89,47 @@ jobs:
           NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
         run: |
           set -e
-          HTTP_CODE="$(
-            curl -sS \
-              --max-time 45 \
-              -o /tmp/nvidia-preflight.json \
-              -w "%{http_code}" \
-              "$NVIDIA_BASE_URL/chat/completions" \
-              -H "Authorization: Bearer $NVIDIA_API_KEY" \
-              -H "Content-Type: application/json" \
-              -d "{
-                \"model\":\"$NVIDIA_MODEL_ID\",
-                \"messages\":[{\"role\":\"user\",\"content\":\"Reply with exactly OK\"}],
-                \"max_tokens\":4,
-                \"stream\":false
-              }"
-          )"
+          ATTEMPT=1
+          while [ "$ATTEMPT" -le 3 ]; do
+            CURL_EXIT=0
+            HTTP_CODE="$(
+              curl -sS \
+                --connect-timeout 10 \
+                --max-time 45 \
+                -o /tmp/nvidia-preflight.json \
+                -w "%{http_code}" \
+                "$NVIDIA_BASE_URL/chat/completions" \
+                -H "Authorization: ******" \
+                -H "Content-Type: application/json" \
+                -d "{
+                  \"model\":\"$NVIDIA_MODEL_ID\",
+                  \"messages\":[{\"role\":\"user\",\"content\":\"Reply with exactly OK\"}],
+                  \"max_tokens\":4,
+                  \"stream\":false
+                }"
+            )" || CURL_EXIT=$?
 
-          echo "NVIDIA preflight HTTP: $HTTP_CODE"
-          cat /tmp/nvidia-preflight.json
+            echo "NVIDIA preflight attempt $ATTEMPT exit: $CURL_EXIT"
+            echo "NVIDIA preflight attempt $ATTEMPT HTTP: ${HTTP_CODE:-000}"
+            [ -f /tmp/nvidia-preflight.json ] && cat /tmp/nvidia-preflight.json
 
-          test "$HTTP_CODE" = "200"
+            if [ "$CURL_EXIT" -eq 0 ] && [ "$HTTP_CODE" = "200" ]; then
+              break
+            fi
+
+            if [ "$CURL_EXIT" -eq 0 ] && [[ "$HTTP_CODE" =~ ^4 ]]; then
+              echo "NVIDIA preflight failed with a non-retryable client error."
+              exit 1
+            fi
+
+            if [ "$ATTEMPT" -eq 3 ]; then
+              echo "NVIDIA preflight failed after 3 attempts."
+              exit 1
+            fi
+
+            sleep 5
+            ATTEMPT=$((ATTEMPT + 1))
+          done
 
       - name: Create OpenCode config
         env:
@@ -164,6 +185,7 @@ jobs:
 
       - name: Clean generated TypeScript cache
         run: |
+          rm -f opencode.json
           find . -name "*.tsbuildinfo" -type f -delete
 
       - name: Verify scope
@@ -305,26 +327,47 @@ jobs:
           NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
         run: |
           set -e
-          HTTP_CODE="$(
-            curl -sS \
-              --max-time 45 \
-              -o /tmp/nvidia-preflight.json \
-              -w "%{http_code}" \
-              "$NVIDIA_BASE_URL/chat/completions" \
-              -H "Authorization: Bearer $NVIDIA_API_KEY" \
-              -H "Content-Type: application/json" \
-              -d "{
-                \"model\":\"$NVIDIA_MODEL_ID\",
-                \"messages\":[{\"role\":\"user\",\"content\":\"Reply with exactly OK\"}],
-                \"max_tokens\":4,
-                \"stream\":false
-              }"
-          )"
+          ATTEMPT=1
+          while [ "$ATTEMPT" -le 3 ]; do
+            CURL_EXIT=0
+            HTTP_CODE="$(
+              curl -sS \
+                --connect-timeout 10 \
+                --max-time 45 \
+                -o /tmp/nvidia-preflight.json \
+                -w "%{http_code}" \
+                "$NVIDIA_BASE_URL/chat/completions" \
+                -H "Authorization: ******" \
+                -H "Content-Type: application/json" \
+                -d "{
+                  \"model\":\"$NVIDIA_MODEL_ID\",
+                  \"messages\":[{\"role\":\"user\",\"content\":\"Reply with exactly OK\"}],
+                  \"max_tokens\":4,
+                  \"stream\":false
+                }"
+            )" || CURL_EXIT=$?
 
-          echo "NVIDIA preflight HTTP: $HTTP_CODE"
-          cat /tmp/nvidia-preflight.json
+            echo "NVIDIA preflight attempt $ATTEMPT exit: $CURL_EXIT"
+            echo "NVIDIA preflight attempt $ATTEMPT HTTP: ${HTTP_CODE:-000}"
+            [ -f /tmp/nvidia-preflight.json ] && cat /tmp/nvidia-preflight.json
 
-          test "$HTTP_CODE" = "200"
+            if [ "$CURL_EXIT" -eq 0 ] && [ "$HTTP_CODE" = "200" ]; then
+              break
+            fi
+
+            if [ "$CURL_EXIT" -eq 0 ] && [[ "$HTTP_CODE" =~ ^4 ]]; then
+              echo "NVIDIA preflight failed with a non-retryable client error."
+              exit 1
+            fi
+
+            if [ "$ATTEMPT" -eq 3 ]; then
+              echo "NVIDIA preflight failed after 3 attempts."
+              exit 1
+            fi
+
+            sleep 5
+            ATTEMPT=$((ATTEMPT + 1))
+          done
 
       - name: Create OpenCode config
         env:
@@ -380,6 +423,7 @@ jobs:
 
       - name: Clean generated TypeScript cache
         run: |
+          rm -f opencode.json
           find . -name "*.tsbuildinfo" -type f -delete
 
       - name: Verify scope
@@ -525,27 +569,48 @@ jobs:
           NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
         run: |
           set -e
-          HTTP_CODE="$(
-            curl -sS \
-              --max-time 45 \
-              -o /tmp/nvidia-preflight.json \
-              -w "%{http_code}" \
-              "$NVIDIA_BASE_URL/chat/completions" \
-              -H "Authorization: Bearer $NVIDIA_API_KEY" \
-              -H "Content-Type: application/json" \
-              -d "{
-                \"model\":\"$NVIDIA_MODEL_ID\",
-                \"messages\":[{\"role\":\"user\",\"content\":\"Reply with exactly OK\"}],
-                \"max_tokens\":4,
-                \"stream\":false,
-                \"reasoning_effort\":\"none\"
-              }"
-          )"
+          ATTEMPT=1
+          while [ "$ATTEMPT" -le 3 ]; do
+            CURL_EXIT=0
+            HTTP_CODE="$(
+              curl -sS \
+                --connect-timeout 10 \
+                --max-time 45 \
+                -o /tmp/nvidia-preflight.json \
+                -w "%{http_code}" \
+                "$NVIDIA_BASE_URL/chat/completions" \
+                -H "Authorization: ******" \
+                -H "Content-Type: application/json" \
+                -d "{
+                  \"model\":\"$NVIDIA_MODEL_ID\",
+                  \"messages\":[{\"role\":\"user\",\"content\":\"Reply with exactly OK\"}],
+                  \"max_tokens\":4,
+                  \"stream\":false,
+                  \"reasoning_effort\":\"none\"
+                }"
+            )" || CURL_EXIT=$?
 
-          echo "NVIDIA preflight HTTP: $HTTP_CODE"
-          cat /tmp/nvidia-preflight.json
+            echo "NVIDIA preflight attempt $ATTEMPT exit: $CURL_EXIT"
+            echo "NVIDIA preflight attempt $ATTEMPT HTTP: ${HTTP_CODE:-000}"
+            [ -f /tmp/nvidia-preflight.json ] && cat /tmp/nvidia-preflight.json
 
-          test "$HTTP_CODE" = "200"
+            if [ "$CURL_EXIT" -eq 0 ] && [ "$HTTP_CODE" = "200" ]; then
+              break
+            fi
+
+            if [ "$CURL_EXIT" -eq 0 ] && [[ "$HTTP_CODE" =~ ^4 ]]; then
+              echo "NVIDIA preflight failed with a non-retryable client error."
+              exit 1
+            fi
+
+            if [ "$ATTEMPT" -eq 3 ]; then
+              echo "NVIDIA preflight failed after 3 attempts."
+              exit 1
+            fi
+
+            sleep 5
+            ATTEMPT=$((ATTEMPT + 1))
+          done
 
       - name: Create OpenCode config
         env:
@@ -601,6 +666,7 @@ jobs:
 
       - name: Clean generated TypeScript cache
         run: |
+          rm -f opencode.json
           find . -name "*.tsbuildinfo" -type f -delete
 
       - name: Verify scope
@@ -736,27 +802,48 @@ jobs:
           NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
         run: |
           set -e
-          HTTP_CODE="$(
-            curl -sS \
-              --max-time 45 \
-              -o /tmp/nvidia-preflight.json \
-              -w "%{http_code}" \
-              "$NVIDIA_BASE_URL/chat/completions" \
-              -H "Authorization: Bearer $NVIDIA_API_KEY" \
-              -H "Content-Type: application/json" \
-              -d "{
-                \"model\":\"$NVIDIA_MODEL_ID\",
-                \"messages\":[{\"role\":\"user\",\"content\":\"Reply with exactly OK\"}],
-                \"max_tokens\":4,
-                \"stream\":false,
-                \"reasoning_effort\":\"low\"
-              }"
-          )"
+          ATTEMPT=1
+          while [ "$ATTEMPT" -le 3 ]; do
+            CURL_EXIT=0
+            HTTP_CODE="$(
+              curl -sS \
+                --connect-timeout 10 \
+                --max-time 45 \
+                -o /tmp/nvidia-preflight.json \
+                -w "%{http_code}" \
+                "$NVIDIA_BASE_URL/chat/completions" \
+                -H "Authorization: ******" \
+                -H "Content-Type: application/json" \
+                -d "{
+                  \"model\":\"$NVIDIA_MODEL_ID\",
+                  \"messages\":[{\"role\":\"user\",\"content\":\"Reply with exactly OK\"}],
+                  \"max_tokens\":4,
+                  \"stream\":false,
+                  \"reasoning_effort\":\"low\"
+                }"
+            )" || CURL_EXIT=$?
 
-          echo "NVIDIA preflight HTTP: $HTTP_CODE"
-          cat /tmp/nvidia-preflight.json
+            echo "NVIDIA preflight attempt $ATTEMPT exit: $CURL_EXIT"
+            echo "NVIDIA preflight attempt $ATTEMPT HTTP: ${HTTP_CODE:-000}"
+            [ -f /tmp/nvidia-preflight.json ] && cat /tmp/nvidia-preflight.json
 
-          test "$HTTP_CODE" = "200"
+            if [ "$CURL_EXIT" -eq 0 ] && [ "$HTTP_CODE" = "200" ]; then
+              break
+            fi
+
+            if [ "$CURL_EXIT" -eq 0 ] && [[ "$HTTP_CODE" =~ ^4 ]]; then
+              echo "NVIDIA preflight failed with a non-retryable client error."
+              exit 1
+            fi
+
+            if [ "$ATTEMPT" -eq 3 ]; then
+              echo "NVIDIA preflight failed after 3 attempts."
+              exit 1
+            fi
+
+            sleep 5
+            ATTEMPT=$((ATTEMPT + 1))
+          done
 
       - name: Create OpenCode config
         env:
@@ -812,6 +899,7 @@ jobs:
 
       - name: Clean generated TypeScript cache
         run: |
+          rm -f opencode.json
           find . -name "*.tsbuildinfo" -type f -delete
 
       - name: Verify scope
