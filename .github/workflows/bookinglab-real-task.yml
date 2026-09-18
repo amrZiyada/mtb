@@ -1,0 +1,383 @@
+name: BookingLab Real Task - 4 Cloud Agents
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  agent-api:
+    name: Agent 1 - Nemotron API
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install API dependencies
+        working-directory: api
+        run: npm ci
+
+      - name: Install OpenCode
+        run: npm install -g opencode-ai@1.18.31
+
+      - name: Configure NVIDIA
+        env:
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+        run: |
+          echo "NVIDIA_BASE_URL=https://integrate.api.nvidia.com/v1" >> "$GITHUB_ENV"
+
+      - name: Create agent branch
+        run: |
+          git checkout -b cloud-task/api-nemotron
+
+      - name: Run Nemotron API agent
+        env:
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+        run: |
+          opencode run \
+            --model "nvidia/nvidia/nemotron-3-ultra-550b-a55b" \
+            --print-logs \
+            "$(cat <<'PROMPT'
+You are Agent 1 for the BookingLab production project.
+
+You are working ONLY on:
+api/src/index.ts
+
+Do not modify any other tracked source file.
+
+REAL TASK:
+Audit and improve the BookingLab patient-address persistence flow.
+
+Requirements:
+1. Patient address must be preserved when an existing reservation is edited.
+2. If the edit payload does not contain address, the existing address must remain unchanged.
+3. If the edit payload explicitly supplies a new address, the new address must be persisted.
+4. Do not change reservation status workflow:
+   PENDING -> ASSIGNED -> ACCEPTED -> CONFIRMED -> DONE
+   There is NO CANCELLED status.
+5. Do not change authentication or authorization rules.
+6. Do not change commission calculations.
+7. Do not change original_total behavior.
+8. Do not change reservation ownership/editing permissions.
+9. Preserve the production booking data model and existing API contracts.
+10. Make the smallest safe production-quality change necessary.
+11. Inspect the current implementation before changing anything.
+12. If the current implementation already satisfies all requirements, make only a minimal harmless improvement related to validation/clarity; do not refactor unrelated code.
+
+Validation:
+- Run:
+  cd api && npm exec --no -- tsc --noEmit
+- Review the diff carefully.
+
+Git rules:
+- Modify ONLY api/src/index.ts.
+- Commit ONLY that file.
+- Commit message:
+  fix: preserve booking address during edits
+- Do NOT push.
+- Do NOT create a PR.
+- Do NOT deploy.
+PROMPT
+)"
+
+      - name: Verify assigned file only
+        run: |
+          git status --short
+          git diff --name-only HEAD~1 HEAD
+
+          test "$(git diff --name-only HEAD~1 HEAD | wc -l)" -eq 1
+          test "$(git diff --name-only HEAD~1 HEAD)" = "api/src/index.ts"
+
+      - name: Upload patch
+        uses: actions/upload-artifact@v4
+        with:
+          name: bookinglab-real-api-nemotron
+          path: |
+            api/src/index.ts
+            ${{ github.workspace }}/../*.patch
+          if-no-files-found: ignore
+
+  agent-dashboard:
+    name: Agent 2 - GLM Dashboard
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install Web dependencies
+        working-directory: web
+        run: npm ci
+
+      - name: Install OpenCode
+        run: npm install -g opencode-ai@1.18.31
+
+      - name: Configure NVIDIA
+        run: |
+          echo "NVIDIA_BASE_URL=https://integrate.api.nvidia.com/v1" >> "$GITHUB_ENV"
+
+      - name: Create agent branch
+        run: |
+          git checkout -b cloud-task/dashboard-glm
+
+      - name: Run GLM Dashboard agent
+        env:
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+        run: |
+          opencode run \
+            --model "nvidia/z-ai/glm-5.3" \
+            --print-logs \
+            "$(cat <<'PROMPT'
+You are Agent 2 for the BookingLab production project.
+
+You are working ONLY on:
+web/app/dashboard/page.tsx
+
+REAL TASK:
+Improve the staff dashboard reservation editing UI so patient address is handled consistently.
+
+Requirements:
+1. When a staff user opens an editable reservation, the current patient address must be visible.
+2. The address must be editable where the existing reservation editing rules allow editing.
+3. Saving the reservation must send the address together with the existing editable patient fields.
+4. Do not change status transitions.
+5. Do not change permissions.
+6. Do not change commission calculations.
+7. Do not change test pricing or original_total behavior.
+8. Do not alter the intentional rule that assigned DOCTOR/REP may edit CONFIRMED reservations when the existing permission allows it.
+9. Do not introduce a new reservation status.
+10. Preserve the existing UI style and responsive behavior.
+11. Inspect the current implementation before modifying it.
+12. Make the smallest safe production-quality change.
+
+Validation:
+- Run:
+  cd web && npm exec --no -- tsc --noEmit
+- Review the diff.
+
+Git rules:
+- Modify ONLY web/app/dashboard/page.tsx.
+- Commit ONLY that file.
+- Commit message:
+  fix: preserve patient address in staff editing
+- Do NOT push.
+- Do NOT create a PR.
+- Do NOT deploy.
+PROMPT
+)"
+
+      - name: Verify assigned file only
+        run: |
+          git status --short
+          git diff --name-only HEAD~1 HEAD
+
+          test "$(git diff --name-only HEAD~1 HEAD | wc -l)" -eq 1
+          test "$(git diff --name-only HEAD~1 HEAD)" = "web/app/dashboard/page.tsx"
+
+      - name: Upload patch
+        uses: actions/upload-artifact@v4
+        with:
+          name: bookinglab-real-dashboard-glm
+          path: web/app/dashboard/page.tsx
+
+  agent-admin:
+    name: Agent 3 - Nemotron Admin
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install Web dependencies
+        working-directory: web
+        run: npm ci
+
+      - name: Install OpenCode
+        run: npm install -g opencode-ai@1.18.31
+
+      - name: Configure NVIDIA
+        run: |
+          echo "NVIDIA_BASE_URL=https://integrate.api.nvidia.com/v1" >> "$GITHUB_ENV"
+
+      - name: Create agent branch
+        run: |
+          git checkout -b cloud-task/admin-nemotron
+
+      - name: Run Nemotron Admin agent
+        env:
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+        run: |
+          opencode run \
+            --model "nvidia/nvidia/nemotron-3-ultra-550b-a55b" \
+            --print-logs \
+            "$(cat <<'PROMPT'
+You are Agent 3 for the BookingLab production project.
+
+You are working ONLY on:
+web/app/admin/page.tsx
+
+REAL TASK:
+Improve the admin reservation editing UI so patient address is handled consistently.
+
+Requirements:
+1. When an admin opens an editable reservation, the current patient address must be visible.
+2. The address must be editable according to the existing admin editing rules.
+3. Saving must send the address with the existing editable patient fields.
+4. Admin must retain the existing ability to edit reservations according to current rules.
+5. Do not change status workflow:
+   PENDING -> ASSIGNED -> ACCEPTED -> CONFIRMED -> DONE
+6. No CANCELLED status.
+7. Do not change authentication/authorization.
+8. Do not change commissions.
+9. Do not change test pricing.
+10. Do not change original_total behavior.
+11. Do not change assignment behavior.
+12. Preserve the existing UI and responsive behavior.
+13. Inspect the current implementation first.
+14. Make the smallest safe production-quality change.
+
+Validation:
+- Run:
+  cd web && npm exec --no -- tsc --noEmit
+- Review the diff.
+
+Git rules:
+- Modify ONLY web/app/admin/page.tsx.
+- Commit ONLY that file.
+- Commit message:
+  fix: preserve patient address in admin editing
+- Do NOT push.
+- Do NOT create a PR.
+- Do NOT deploy.
+PROMPT
+)"
+
+      - name: Verify assigned file only
+        run: |
+          git status --short
+          git diff --name-only HEAD~1 HEAD
+
+          test "$(git diff --name-only HEAD~1 HEAD | wc -l)" -eq 1
+          test "$(git diff --name-only HEAD~1 HEAD)" = "web/app/admin/page.tsx"
+
+      - name: Upload patch
+        uses: actions/upload-artifact@v4
+        with:
+          name: bookinglab-real-admin-nemotron
+          path: web/app/admin/page.tsx
+
+  agent-public:
+    name: Agent 4 - GLM Public
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install Web dependencies
+        working-directory: web
+        run: npm ci
+
+      - name: Install OpenCode
+        run: npm install -g opencode-ai@1.18.31
+
+      - name: Configure NVIDIA
+        run: |
+          echo "NVIDIA_BASE_URL=https://integrate.api.nvidia.com/v1" >> "$GITHUB_ENV"
+
+      - name: Create agent branch
+        run: |
+          git checkout -b cloud-task/public-glm
+
+      - name: Run GLM Public agent
+        env:
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+        run: |
+          opencode run \
+            --model "nvidia/z-ai/glm-5.3" \
+            --print-logs \
+            "$(cat <<'PROMPT'
+You are Agent 4 for the BookingLab production project.
+
+You are working ONLY on:
+web/app/page.tsx
+
+REAL TASK:
+Audit and improve the public booking flow's patient address handling.
+
+Requirements:
+1. Patient address must be collected as part of the existing booking information.
+2. The address sent when creating a reservation must correspond to the value entered by the patient.
+3. Do not break the existing booking flow.
+4. Do not preload tests.
+5. Preserve search-based test loading.
+6. Do not change cart behavior.
+7. Do not change duplicate reservation rules.
+8. Do not change reservation statuses.
+9. Do not change commission calculations.
+10. Do not change authentication.
+11. Preserve the existing responsive/mobile UI.
+12. Inspect the current implementation first.
+13. Make the smallest safe production-quality change.
+14. If address handling is already correct, do not refactor it; make only a minimal safe improvement if genuinely necessary.
+
+Validation:
+- Run:
+  cd web && npm exec --no -- tsc --noEmit
+- Review the diff.
+
+Git rules:
+- Modify ONLY web/app/page.tsx.
+- Commit ONLY that file.
+- Commit message:
+  fix: preserve patient address in public booking
+- Do NOT push.
+- Do NOT create a PR.
+- Do NOT deploy.
+PROMPT
+)"
+
+      - name: Verify assigned file only
+        run: |
+          git status --short
+          git diff --name-only HEAD~1 HEAD
+
+          test "$(git diff --name-only HEAD~1 HEAD | wc -l)" -eq 1
+          test "$(git diff --name-only HEAD~1 HEAD)" = "web/app/page.tsx"
+
+      - name: Upload patch
+        uses: actions/upload-artifact@v4
+        with:
+          name: bookinglab-real-public-glm
+          path: web/app/page.tsx
