@@ -11,226 +11,226 @@ env:
   OPENCODE_VERSION: 1.18.31
 
 jobs:
-
-  # ============================================================
-  # STEP 3.5 FLASH
-  # ============================================================
-  test-step:
-    name: "Test - Step 3.5 Flash"
+  qwen35:
+    name: Qwen3.5-122B-A10B
     runs-on: ubuntu-latest
-    timeout-minutes: 7
-
-    env:
-      NVIDIA_MODEL_ID: stepfun-ai/step-3.5-flash
-      OPENCODE_MODEL: nvidia/stepfun-ai/step-3.5-flash
+    timeout-minutes: 8
 
     steps:
-
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install OpenCode
-        run: |
-          set -e
-          npm install -g "opencode-ai@${OPENCODE_VERSION}"
-          opencode --version
-
-      - name: NVIDIA API test
+      - name: Check NVIDIA API
         env:
           NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
         run: |
-          set -e
+          set -euo pipefail
 
-          echo "Testing NVIDIA model:"
-          echo "$NVIDIA_MODEL_ID"
-
-          curl -sS \
-            --connect-timeout 10 \
-            --max-time 45 \
-            "$NVIDIA_BASE_URL/chat/completions" \
-            -H "Authorization: Bearer $NVIDIA_API_KEY" \
-            -H "Content-Type: application/json" \
-            -d "{
-              \"model\":\"$NVIDIA_MODEL_ID\",
-              \"messages\":[
-                {
-                  \"role\":\"user\",
-                  \"content\":\"Reply with exactly STEP_3_5_API_OK\"
-                }
-              ],
-              \"temperature\":1,
-              \"max_tokens\":16,
-              \"stream\":false
-            }" \
-            | tee /tmp/step-api.json
-
-          grep -q "STEP_3_5_API_OK" /tmp/step-api.json
-
-      - name: Create OpenCode config
-        run: |
-          cat > opencode.json <<EOF
+          cat > /tmp/request.json <<'JSON'
           {
-            "\$schema":"https://opencode.ai/config.json",
-            "model":"$OPENCODE_MODEL",
-            "provider":{
-              "nvidia":{
-                "npm":"@ai-sdk/openai-compatible",
-                "name":"NVIDIA NIM",
-                "options":{
-                  "baseURL":"{env:NVIDIA_BASE_URL}",
-                  "apiKey":"{env:NVIDIA_API_KEY}"
+            "model": "qwen/qwen3.5-122b-a10b",
+            "messages": [
+              {
+                "role": "user",
+                "content": "Reply with exactly: QWEN35_API_OK"
+              }
+            ],
+            "chat_template_kwargs": {
+              "enable_thinking": false
+            },
+            "temperature": 0.7,
+            "top_p": 0.8,
+            "max_tokens": 16,
+            "stream": false
+          }
+          JSON
+
+          status="$(
+            curl --http1.1 \
+              --connect-timeout 10 \
+              --max-time 90 \
+              -sS \
+              -o /tmp/response.json \
+              -w '%{http_code}' \
+              -X POST \
+              "${NVIDIA_BASE_URL}/chat/completions" \
+              -H "Authorization: Bearer ${NVIDIA_API_KEY}" \
+              -H "Content-Type: application/json" \
+              -H "Accept: application/json" \
+              --data-binary @/tmp/request.json
+          )"
+
+          echo "HTTP status: ${status}"
+          cat /tmp/response.json
+
+          if [ "${status}" != "200" ]; then
+            echo "::error::Qwen3.5 NVIDIA API failed with HTTP ${status}"
+            exit 1
+          fi
+
+          if ! grep -q "QWEN35_API_OK" /tmp/response.json; then
+            echo "::error::Qwen3.5 API marker not found"
+            exit 1
+          fi
+
+          echo "QWEN35_API_OK"
+
+      - name: Install OpenCode
+        run: |
+          set -euo pipefail
+          npm install -g "opencode-ai@${OPENCODE_VERSION}"
+          opencode --version
+
+      - name: OpenCode integration test
+        env:
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+          NVIDIA_BASE_URL: ${{ env.NVIDIA_BASE_URL }}
+        run: |
+          set -euo pipefail
+
+          cat > opencode.json <<'JSON'
+          {
+            "$schema": "https://opencode.ai/config.json",
+            "model": "nvidia/qwen/qwen3.5-122b-a10b",
+            "provider": {
+              "nvidia": {
+                "npm": "@ai-sdk/openai-compatible",
+                "name": "NVIDIA NIM",
+                "options": {
+                  "baseURL": "{env:NVIDIA_BASE_URL}",
+                  "apiKey": "{env:NVIDIA_API_KEY}"
                 },
-                "models":{
-                  "$NVIDIA_MODEL_ID":{
-                    "name":"$NVIDIA_MODEL_ID",
-                    "limit":{
-                      "context":256000,
-                      "output":8192
+                "models": {
+                  "qwen3.5-122b-a10b": {
+                    "name": "qwen/qwen3.5-122b-a10b",
+                    "limit": {
+                      "context": 262144,
+                      "output": 32768
                     }
                   }
                 }
               }
             }
           }
-          EOF
+          JSON
 
-          cat opencode.json
+          timeout 240s opencode run \
+            --model nvidia/qwen/qwen3.5-122b-a10b \
+            --print-logs \
+            "You are performing a read-only BookingLab preflight test. Do not edit files. Reply with exactly: QWEN35_OPENCODE_OK"
 
-      - name: OpenCode read-only agent test
+      - name: Cleanup
+        if: always()
+        run: rm -f opencode.json /tmp/request.json /tmp/response.json
+
+  nemotron-super:
+    name: Nemotron 3 Super 120B A12B
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check NVIDIA API
         env:
           NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
         run: |
-          set -e
+          set -euo pipefail
 
-          timeout --foreground 4m \
-            opencode run \
-            --model "$OPENCODE_MODEL" \
-            --print-logs \
-            "Read ONLY web/app/page.tsx from the repository. Do not modify any file. Do not run npm, tsc, tests, or build. Tell me the name of the state/value used for the patient address field and whether the address appears to be included in the public booking payload. Finish immediately."
+          cat > /tmp/request.json <<'JSON'
+          {
+            "model": "nvidia/nemotron-3-super-120b-a12b",
+            "messages": [
+              {
+                "role": "user",
+                "content": "Reply with exactly: NEMOTRON_SUPER_API_OK"
+              }
+            ],
+            "chat_template_kwargs": {
+              "enable_thinking": false
+            },
+            "temperature": 1.0,
+            "top_p": 0.95,
+            "max_tokens": 16,
+            "stream": false
+          }
+          JSON
 
-      - name: Verify no source modifications
-        run: |
-          set -e
+          status="$(
+            curl --http1.1 \
+              --connect-timeout 10 \
+              --max-time 90 \
+              -sS \
+              -o /tmp/response.json \
+              -w '%{http_code}' \
+              -X POST \
+              "${NVIDIA_BASE_URL}/chat/completions" \
+              -H "Authorization: Bearer ${NVIDIA_API_KEY}" \
+              -H "Content-Type: application/json" \
+              -H "Accept: application/json" \
+              --data-binary @/tmp/request.json
+          )"
 
-          rm -f opencode.json
-          find . -name "*.tsbuildinfo" -type f -delete
+          echo "HTTP status: ${status}"
+          cat /tmp/response.json
 
-          if [ -n "$(git status --porcelain)" ]; then
-            echo "ERROR: OpenCode modified the repository."
-            git status --short
+          if [ "${status}" != "200" ]; then
+            echo "::error::Nemotron Super NVIDIA API failed with HTTP ${status}"
             exit 1
           fi
 
-          echo "STEP 3.5 FLASH PASSED"
+          if ! grep -q "NEMOTRON_SUPER_API_OK" /tmp/response.json; then
+            echo "::error::Nemotron Super API marker not found"
+            exit 1
+          fi
 
-
-  # ============================================================
-  # KIMI K2 THINKING
-  # ============================================================
-  test-kimi:
-    name: "Test - Kimi K2 Thinking"
-    runs-on: ubuntu-latest
-    timeout-minutes: 7
-
-    env:
-      NVIDIA_MODEL_ID: moonshotai/kimi-k2-thinking
-      OPENCODE_MODEL: nvidia/moonshotai/kimi-k2-thinking
-
-    steps:
-
-      - name: Checkout repository
-        uses: actions/checkout@v4
+          echo "NEMOTRON_SUPER_API_OK"
 
       - name: Install OpenCode
         run: |
-          set -e
+          set -euo pipefail
           npm install -g "opencode-ai@${OPENCODE_VERSION}"
           opencode --version
 
-      - name: NVIDIA API test
+      - name: OpenCode integration test
         env:
           NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+          NVIDIA_BASE_URL: ${{ env.NVIDIA_BASE_URL }}
         run: |
-          set -e
+          set -euo pipefail
 
-          echo "Testing NVIDIA model:"
-          echo "$NVIDIA_MODEL_ID"
-
-          curl -sS \
-            --connect-timeout 10 \
-            --max-time 45 \
-            "$NVIDIA_BASE_URL/chat/completions" \
-            -H "Authorization: Bearer $NVIDIA_API_KEY" \
-            -H "Content-Type: application/json" \
-            -d "{
-              \"model\":\"$NVIDIA_MODEL_ID\",
-              \"messages\":[
-                {
-                  \"role\":\"user\",
-                  \"content\":\"Reply with exactly KIMI_API_OK\"
-                }
-              ],
-              \"temperature\":1,
-              \"max_tokens\":16,
-              \"stream\":false
-            }" \
-            | tee /tmp/kimi-api.json
-
-          grep -q "KIMI_API_OK" /tmp/kimi-api.json
-
-      - name: Create OpenCode config
-        run: |
-          cat > opencode.json <<EOF
+          cat > opencode.json <<'JSON'
           {
-            "\$schema":"https://opencode.ai/config.json",
-            "model":"$OPENCODE_MODEL",
-            "provider":{
-              "nvidia":{
-                "npm":"@ai-sdk/openai-compatible",
-                "name":"NVIDIA NIM",
-                "options":{
-                  "baseURL":"{env:NVIDIA_BASE_URL}",
-                  "apiKey":"{env:NVIDIA_API_KEY}"
+            "$schema": "https://opencode.ai/config.json",
+            "model": "nvidia/nvidia/nemotron-3-super-120b-a12b",
+            "provider": {
+              "nvidia": {
+                "npm": "@ai-sdk/openai-compatible",
+                "name": "NVIDIA NIM",
+                "options": {
+                  "baseURL": "{env:NVIDIA_BASE_URL}",
+                  "apiKey": "{env:NVIDIA_API_KEY}"
                 },
-                "models":{
-                  "$NVIDIA_MODEL_ID":{
-                    "name":"$NVIDIA_MODEL_ID",
-                    "limit":{
-                      "context":256000,
-                      "output":8192
+                "models": {
+                  "nemotron-3-super-120b-a12b": {
+                    "name": "nvidia/nemotron-3-super-120b-a12b",
+                    "limit": {
+                      "context": 1000000,
+                      "output": 32768
                     }
                   }
                 }
               }
             }
           }
-          EOF
+          JSON
 
-          cat opencode.json
-
-      - name: OpenCode read-only agent test
-        env:
-          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
-        run: |
-          set -e
-
-          timeout --foreground 4m \
-            opencode run \
-            --model "$OPENCODE_MODEL" \
+          timeout 240s opencode run \
+            --model nvidia/nvidia/nemotron-3-super-120b-a12b \
             --print-logs \
-            "Read ONLY web/app/admin/page.tsx from the repository. Do not modify any file. Do not run npm, tsc, tests, or build. Identify the existing patient address field and explain briefly how its value reaches the existing save payload. Finish immediately."
+            "You are performing a read-only BookingLab preflight test. Do not edit files. Reply with exactly: NEMOTRON_SUPER_OPENCODE_OK"
 
-      - name: Verify no source modifications
-        run: |
-          set -e
-
-          rm -f opencode.json
-          find . -name "*.tsbuildinfo" -type f -delete
-
-          if [ -n "$(git status --porcelain)" ]; then
-            echo "ERROR: OpenCode modified the repository."
-            git status --short
-            exit 1
-          fi
-
-          echo "KIMI K2 THINKING PASSED"
+      - name: Cleanup
+        if: always()
+        run: rm -f opencode.json /tmp/request.json /tmp/response.json
