@@ -19,33 +19,33 @@ jobs:
         include:
           - agent: "Agent 1 - Nemotron - API"
             model: "nvidia/nvidia/nemotron-3-ultra-550b-a55b"
-            model_key: "nvidia/nemotron-3-ultra-550b-a55b"
             display_model: "Nemotron 3 Ultra 550B"
             branch: "cloud-test/api-nemotron"
             target_file: "api/src/index.ts"
+            project_dir: "api"
 
           - agent: "Agent 2 - GLM-5.3 - Dashboard"
             model: "nvidia/z-ai/glm-5.3"
-            model_key: "z-ai/glm-5.3"
             display_model: "GLM-5.3"
             branch: "cloud-test/dashboard-glm"
             target_file: "web/app/dashboard/page.tsx"
+            project_dir: "web"
 
           - agent: "Agent 3 - Nemotron - Admin"
             model: "nvidia/nvidia/nemotron-3-ultra-550b-a55b"
-            model_key: "nvidia/nemotron-3-ultra-550b-a55b"
             display_model: "Nemotron 3 Ultra 550B"
             branch: "cloud-test/admin-nemotron"
             target_file: "web/app/admin/page.tsx"
+            project_dir: "web"
 
           - agent: "Agent 4 - GLM-5.3 - Public"
             model: "nvidia/z-ai/glm-5.3"
-            model_key: "z-ai/glm-5.3"
             display_model: "GLM-5.3"
             branch: "cloud-test/public-glm"
             target_file: "web/app/page.tsx"
+            project_dir: "web"
 
-    timeout-minutes: 15
+    timeout-minutes: 20
 
     steps:
       - name: Checkout repository
@@ -70,9 +70,21 @@ jobs:
           echo "Model:        ${{ matrix.display_model }}"
           echo "Branch:       ${{ matrix.branch }}"
           echo "Target file:  ${{ matrix.target_file }}"
+          echo "Project:      ${{ matrix.project_dir }}"
           echo "========================================"
 
           git branch --show-current
+
+      - name: Install project dependencies
+        working-directory: ${{ matrix.project_dir }}
+        run: |
+          echo "Installing dependencies for ${{ matrix.project_dir }}..."
+
+          if [ -f package-lock.json ]; then
+            npm ci
+          else
+            npm install
+          fi
 
       - name: Install OpenCode
         run: |
@@ -124,13 +136,13 @@ jobs:
 
           ${{ matrix.target_file }}
 
-          You MUST inspect the repository and the assigned file before editing.
+          You MUST inspect the repository and assigned file before editing.
 
-          YOUR ONLY ALLOWED SOURCE FILE TO MODIFY IS:
+          YOUR ONLY ALLOWED SOURCE FILE TO MODIFY:
 
           ${{ matrix.target_file }}
 
-          Do NOT modify any other tracked file.
+          DO NOT modify any other tracked file.
 
           Do NOT modify:
           - any other file under api/
@@ -174,7 +186,7 @@ jobs:
           Do NOT deploy.
           Do NOT modify main.
 
-          Commit message should be:
+          Commit message:
 
           BookingLab cloud agent isolation test
 
@@ -189,7 +201,7 @@ jobs:
           NVIDIA_BASE_URL: https://integrate.api.nvidia.com/v1
         run: |
           echo "========================================"
-          echo "STARTING OPENCode"
+          echo "STARTING OPENCODE"
           echo "Agent: ${{ matrix.agent }}"
           echo "Model: ${{ matrix.display_model }}"
           echo "Target: ${{ matrix.target_file }}"
@@ -224,22 +236,18 @@ jobs:
 
           if [ "$COMMITTED_FILES" != "$EXPECTED" ]; then
             echo
-            echo "ERROR: Agent modified or committed an unauthorized file."
+            echo "ERROR: Agent committed an unauthorized file."
             echo
-            echo "Expected only:"
+            echo "Expected:"
             echo "$EXPECTED"
             echo
-            echo "Actually committed:"
+            echo "Actual:"
             echo "$COMMITTED_FILES"
             exit 1
           fi
 
           echo
           echo "Commit contains ONLY the assigned file."
-
-          echo
-          echo "Checking working tree:"
-          git status --short
 
           echo
           echo "Checking assigned file:"
@@ -251,46 +259,59 @@ jobs:
           echo "Required isolation-test comment found."
 
           echo
+          echo "Cleaning workflow-only temporary files..."
+
+          rm -f agent-task.md opencode.json
+
+          echo
+          echo "Remaining working tree:"
+          git status --short
+
+          if [ -n "$(git status --short)" ]; then
+            echo
+            echo "ERROR: Unexpected working-tree changes remain."
+            exit 1
+          fi
+
+          echo
           echo "========================================"
           echo "ISOLATION TEST PASSED"
           echo "========================================"
 
-      - name: Run targeted syntax check
+      - name: Run targeted TypeScript validation
+        working-directory: ${{ matrix.project_dir }}
         run: |
           echo "========================================"
-          echo "TARGETED VALIDATION"
+          echo "TARGETED TYPESCRIPT VALIDATION"
           echo "========================================"
 
-          case "${{ matrix.target_file }}" in
-            api/src/index.ts)
-              cd api
-              npx tsc --noEmit
-              ;;
-
-            web/app/dashboard/page.tsx)
-              cd web
-              npx tsc --noEmit
-              ;;
-
-            web/app/admin/page.tsx)
-              cd web
-              npx tsc --noEmit
-              ;;
-
-            web/app/page.tsx)
-              cd web
-              npx tsc --noEmit
-              ;;
-          esac
+          echo "Node:"
+          node --version
 
           echo
+          echo "npm:"
+          npm --version
+
+          echo
+          echo "TypeScript:"
+          npm exec --no -- tsc --version
+
+          echo
+          echo "Running TypeScript compiler..."
+
+          npm exec --no -- tsc --noEmit
+
+          echo
+          echo "========================================"
           echo "TARGETED VALIDATION PASSED"
+          echo "========================================"
 
       - name: Create patch artifact
         run: |
           git format-patch -1 HEAD --stdout \
             > "${{ matrix.agent }}.patch"
 
+          echo "Patch created:"
           ls -lh "${{ matrix.agent }}.patch"
 
       - name: Upload agent patch
