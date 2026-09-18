@@ -1,4 +1,4 @@
-name: GLM Cloud Test
+name: NVIDIA Model Discovery
 
 on:
   workflow_dispatch:
@@ -7,71 +7,78 @@ permissions:
   contents: read
 
 jobs:
-  glm-agents:
-    name: ${{ matrix.agent }}
+  discover:
+    name: Discover NVIDIA Models
     runs-on: ubuntu-latest
 
-    strategy:
-      fail-fast: false
-      max-parallel: 2
-      matrix:
-        include:
-          - agent: "Agent 3 - GLM-5.3"
-            model: "z-ai/glm-5-3"
-
-          - agent: "Agent 4 - GLM-5.3-Flash"
-            model: "z-ai/glm-5-3-flash"
-
-    timeout-minutes: 10
-
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v6
-        with:
-          fetch-depth: 1
-
-      - name: Test NVIDIA GLM model directly
+      - name: Query NVIDIA model catalog
         env:
           NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
-          NVIDIA_MODEL: ${{ matrix.model }}
         run: |
           echo "========================================"
-          echo "Agent: ${{ matrix.agent }}"
-          echo "NVIDIA model: $NVIDIA_MODEL"
+          echo "NVIDIA MODELS AVAILABLE TO THIS API KEY"
           echo "========================================"
 
           HTTP_STATUS=$(curl -sS \
-            -o nvidia-response.json \
+            -o models.json \
             -w "%{http_code}" \
-            --max-time 120 \
-            -X POST \
-            "https://integrate.api.nvidia.com/v1/chat/completions" \
-            -H "Authorization: Bearer $NVIDIA_API_KEY" \
-            -H "Content-Type: application/json" \
-            -d "{
-              \"model\": \"$NVIDIA_MODEL\",
-              \"messages\": [
-                {
-                  \"role\": \"user\",
-                  \"content\": \"Reply with exactly: GLM MODEL TEST OK\"
-                }
-              ],
-              \"max_tokens\": 20,
-              \"stream\": false
-            }")
+            --max-time 60 \
+            -X GET \
+            "https://integrate.api.nvidia.com/v1/models" \
+            -H "Authorization: Bearer $NVIDIA_API_KEY")
 
           echo
           echo "HTTP_STATUS=$HTTP_STATUS"
           echo
-          echo "NVIDIA RESPONSE:"
-          cat nvidia-response.json
-          echo
 
           if [ "$HTTP_STATUS" -lt 200 ] || [ "$HTTP_STATUS" -ge 300 ]; then
-            echo
-            echo "GLM MODEL TEST FAILED"
+            echo "NVIDIA MODEL LIST FAILED"
+            cat models.json
             exit 1
           fi
 
+          echo "GLM MODELS:"
+          python - <<'PY'
+          import json
+
+          with open("models.json") as f:
+              data = json.load(f)
+
+          models = data.get("data", [])
+
+          found = []
+
+          for item in models:
+              model_id = item.get("id", "")
+              if "glm" in model_id.lower():
+                  found.append(model_id)
+
+          if found:
+              for model in found:
+                  print("  " + model)
+          else:
+              print("  No GLM models returned for this API key.")
+
+          print()
+          print("TOTAL MODELS RETURNED:", len(models))
+          PY
+
           echo
-          echo "GLM MODEL TEST PASSED"
+          echo "========================================"
+          echo "NEMOTRON / DEEPSEEK CHECK"
+          echo "========================================"
+
+          python - <<'PY'
+          import json
+
+          with open("models.json") as f:
+              data = json.load(f)
+
+          for item in data.get("data", []):
+              model = item.get("id", "")
+              low = model.lower()
+
+              if "nemotron" in low or "deepseek" in low:
+                  print(model)
+          PY
