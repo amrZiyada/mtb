@@ -20,7 +20,7 @@ jobs:
   api-agent:
     name: Agent 1 - API - Nemotron Ultra
     runs-on: ubuntu-latest
-    timeout-minutes: 18
+    timeout-minutes: 125
 
     env:
       NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
@@ -120,7 +120,7 @@ jobs:
       - name: Run Nemotron Ultra
         run: |
           set -euo pipefail
-          timeout 1020s opencode run             --model "${OPENCODE_MODEL}"             --print-logs             "${AGENT_PROMPT}"
+          timeout 7200s opencode run             --model "${OPENCODE_MODEL}"             --print-logs             "${AGENT_PROMPT}"
 
       - name: Validate API scope
         run: |
@@ -166,7 +166,7 @@ jobs:
   frontend-agent:
     name: Agent 2 - Frontend - Nemotron Ultra
     runs-on: ubuntu-latest
-    timeout-minutes: 18
+    timeout-minutes: 125
 
     env:
       NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
@@ -295,7 +295,7 @@ jobs:
       - name: Run Nemotron Ultra
         run: |
           set -euo pipefail
-          timeout 1020s opencode run             --model "${OPENCODE_MODEL}"             --print-logs             "${AGENT_PROMPT}"
+          timeout 7200s opencode run             --model "${OPENCODE_MODEL}"             --print-logs             "${AGENT_PROMPT}"
 
       - name: Validate frontend scope
         run: |
