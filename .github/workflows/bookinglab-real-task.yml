@@ -1,4 +1,4 @@
-name: BookingLab Real Task - 4 Cloud Agents v3
+name: BookingLab Real Task - 4 Cloud Agents v3.1
 
 on:
   workflow_dispatch:
@@ -11,7 +11,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  agent-api-nemotron:
+
+  agent-api:
     name: Agent 1 - Nemotron API
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -54,16 +55,123 @@ jobs:
 
         FIRST inspect the existing implementation carefully.
 
-        If the current implementation already satisfies the task, make NO source-code changes and finish successfully.
+        If the current implementation already satisfies the task:
+        - Make NO source-code changes.
+        - Do NOT create a commit.
+        - Finish successfully.
 
-        If a real defect exists, make the smallest safe change necessary, only in:
-        api/src/index.ts
+        If a real defect exists:
+        - Make the smallest safe change necessary.
+        - Modify ONLY api/src/index.ts.
+        - Do not create speculative improvements.
+        - Do not rewrite the file.
 
-        Do not create speculative improvements.
+        Ensure the final assigned file is valid TypeScript.
 
-        After the task, ensure the assigned file remains valid TypeScript.
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
 
-  agent-dashboard-glm:
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      - name: Install API dependencies
+        working-directory: api
+        run: npm ci
+
+      - name: Install OpenCode
+        run: npm install -g opencode-ai@1.18.31
+
+      - name: Record baseline
+        run: |
+          set -euo pipefail
+          BASE_SHA="$(git rev-parse HEAD)"
+          echo "BASE_SHA=$BASE_SHA" >> "$GITHUB_ENV"
+          echo "Baseline: $BASE_SHA"
+
+      - name: Run Nemotron
+        timeout-minutes: 10
+        run: |
+          set -euo pipefail
+
+          timeout 8m opencode run \
+            --model "nvidia/nvidia/nemotron-3-ultra-550b-a55b" \
+            --print-logs \
+            "$AGENT_PROMPT"
+
+      - name: Validate API TypeScript
+        working-directory: api
+        timeout-minutes: 3
+        run: |
+          set -euo pipefail
+          timeout 150s npm exec --no -- tsc --noEmit --incremental false
+
+      - name: Verify scope and create artifact
+        timeout-minutes: 2
+        run: |
+          set -euo pipefail
+
+          ASSIGNED="api/src/index.ts"
+
+          TRACKED_CHANGED="$(git diff --name-only "$BASE_SHA")"
+          UNTRACKED_CHANGED="$(git ls-files --others --exclude-standard)"
+
+          echo "Tracked changes:"
+          if [ -n "$TRACKED_CHANGED" ]; then
+            printf '%s\n' "$TRACKED_CHANGED"
+          else
+            echo "NONE"
+          fi
+
+          echo "Untracked files:"
+          if [ -n "$UNTRACKED_CHANGED" ]; then
+            printf '%s\n' "$UNTRACKED_CHANGED"
+          else
+            echo "NONE"
+          fi
+
+          BAD_TRACKED="$(
+            printf '%s\n' "$TRACKED_CHANGED" |
+            sed '/^$/d' |
+            grep -vxF "$ASSIGNED" || true
+          )"
+
+          if [ -n "$BAD_TRACKED" ]; then
+            echo "ERROR: Agent changed files outside assigned scope:"
+            printf '%s\n' "$BAD_TRACKED"
+            exit 1
+          fi
+
+          if [ -n "$UNTRACKED_CHANGED" ]; then
+            echo "ERROR: Agent created untracked files:"
+            printf '%s\n' "$UNTRACKED_CHANGED"
+            exit 1
+          fi
+
+          if git diff --quiet "$BASE_SHA" -- "$ASSIGNED"; then
+            echo "NO_CHANGE" > agent.noop
+            echo "Agent 1: NO CHANGE"
+          else
+            git diff "$BASE_SHA" -- "$ASSIGNED" > agent.patch
+            test -s agent.patch
+            echo "Agent 1: PATCH CREATED"
+          fi
+
+      - name: Upload API artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: bookinglab-agent-1-api
+          path: |
+            agent.patch
+            agent.noop
+          if-no-files-found: ignore
+
+
+  agent-dashboard:
     name: Agent 2 - GLM Dashboard
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -108,16 +216,123 @@ jobs:
 
         FIRST inspect the existing implementation carefully.
 
-        If the current implementation already satisfies the task, make NO source-code changes and finish successfully.
+        If the current implementation already satisfies the task:
+        - Make NO source-code changes.
+        - Do NOT create a commit.
+        - Finish successfully.
 
-        If a real defect exists, make the smallest safe change necessary, only in:
-        web/app/dashboard/page.tsx
+        If a real defect exists:
+        - Make the smallest safe change necessary.
+        - Modify ONLY web/app/dashboard/page.tsx.
+        - Do not create speculative improvements.
+        - Do not rewrite the page.
 
-        Do not create speculative improvements.
+        Ensure the final assigned file is valid TypeScript/TSX.
 
-        After the task, ensure the assigned file remains valid TypeScript/TSX.
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
 
-  agent-admin-glm:
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      - name: Install Web dependencies
+        working-directory: web
+        run: npm ci
+
+      - name: Install OpenCode
+        run: npm install -g opencode-ai@1.18.31
+
+      - name: Record baseline
+        run: |
+          set -euo pipefail
+          BASE_SHA="$(git rev-parse HEAD)"
+          echo "BASE_SHA=$BASE_SHA" >> "$GITHUB_ENV"
+          echo "Baseline: $BASE_SHA"
+
+      - name: Run GLM
+        timeout-minutes: 10
+        run: |
+          set -euo pipefail
+
+          timeout 8m opencode run \
+            --model "nvidia/z-ai/glm-5.3" \
+            --print-logs \
+            "$AGENT_PROMPT"
+
+      - name: Validate Web TypeScript
+        working-directory: web
+        timeout-minutes: 3
+        run: |
+          set -euo pipefail
+          timeout 150s npm exec --no -- tsc --noEmit --incremental false
+
+      - name: Verify scope and create artifact
+        timeout-minutes: 2
+        run: |
+          set -euo pipefail
+
+          ASSIGNED="web/app/dashboard/page.tsx"
+
+          TRACKED_CHANGED="$(git diff --name-only "$BASE_SHA")"
+          UNTRACKED_CHANGED="$(git ls-files --others --exclude-standard)"
+
+          echo "Tracked changes:"
+          if [ -n "$TRACKED_CHANGED" ]; then
+            printf '%s\n' "$TRACKED_CHANGED"
+          else
+            echo "NONE"
+          fi
+
+          echo "Untracked files:"
+          if [ -n "$UNTRACKED_CHANGED" ]; then
+            printf '%s\n' "$UNTRACKED_CHANGED"
+          else
+            echo "NONE"
+          fi
+
+          BAD_TRACKED="$(
+            printf '%s\n' "$TRACKED_CHANGED" |
+            sed '/^$/d' |
+            grep -vxF "$ASSIGNED" || true
+          )"
+
+          if [ -n "$BAD_TRACKED" ]; then
+            echo "ERROR: Agent changed files outside assigned scope:"
+            printf '%s\n' "$BAD_TRACKED"
+            exit 1
+          fi
+
+          if [ -n "$UNTRACKED_CHANGED" ]; then
+            echo "ERROR: Agent created untracked files:"
+            printf '%s\n' "$UNTRACKED_CHANGED"
+            exit 1
+          fi
+
+          if git diff --quiet "$BASE_SHA" -- "$ASSIGNED"; then
+            echo "NO_CHANGE" > agent.noop
+            echo "Agent 2: NO CHANGE"
+          else
+            git diff "$BASE_SHA" -- "$ASSIGNED" > agent.patch
+            test -s agent.patch
+            echo "Agent 2: PATCH CREATED"
+          fi
+
+      - name: Upload Dashboard artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: bookinglab-agent-2-dashboard
+          path: |
+            agent.patch
+            agent.noop
+          if-no-files-found: ignore
+
+
+  agent-admin:
     name: Agent 3 - GLM Admin
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -167,14 +382,121 @@ jobs:
         Do NOT introduce a second component architecture.
         Do NOT add speculative features.
 
-        If the current implementation already satisfies the task, make NO source-code changes and finish successfully.
+        If the current implementation already satisfies the task:
+        - Make NO source-code changes.
+        - Do NOT create a commit.
+        - Finish successfully.
 
-        If a real defect exists, make the smallest safe change necessary, only in:
-        web/app/admin/page.tsx
+        If a real defect exists:
+        - Make the smallest safe change necessary.
+        - Modify ONLY web/app/admin/page.tsx.
 
-        After the task, ensure the assigned file remains valid TypeScript/TSX.
+        Ensure the final assigned file is valid TypeScript/TSX.
 
-  agent-public-glm:
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      - name: Install Web dependencies
+        working-directory: web
+        run: npm ci
+
+      - name: Install OpenCode
+        run: npm install -g opencode-ai@1.18.31
+
+      - name: Record baseline
+        run: |
+          set -euo pipefail
+          BASE_SHA="$(git rev-parse HEAD)"
+          echo "BASE_SHA=$BASE_SHA" >> "$GITHUB_ENV"
+          echo "Baseline: $BASE_SHA"
+
+      - name: Run GLM
+        timeout-minutes: 10
+        run: |
+          set -euo pipefail
+
+          timeout 8m opencode run \
+            --model "nvidia/z-ai/glm-5.3" \
+            --print-logs \
+            "$AGENT_PROMPT"
+
+      - name: Validate Web TypeScript
+        working-directory: web
+        timeout-minutes: 3
+        run: |
+          set -euo pipefail
+          timeout 150s npm exec --no -- tsc --noEmit --incremental false
+
+      - name: Verify scope and create artifact
+        timeout-minutes: 2
+        run: |
+          set -euo pipefail
+
+          ASSIGNED="web/app/admin/page.tsx"
+
+          TRACKED_CHANGED="$(git diff --name-only "$BASE_SHA")"
+          UNTRACKED_CHANGED="$(git ls-files --others --exclude-standard)"
+
+          echo "Tracked changes:"
+          if [ -n "$TRACKED_CHANGED" ]; then
+            printf '%s\n' "$TRACKED_CHANGED"
+          else
+            echo "NONE"
+          fi
+
+          echo "Untracked files:"
+          if [ -n "$UNTRACKED_CHANGED" ]; then
+            printf '%s\n' "$UNTRACKED_CHANGED"
+          else
+            echo "NONE"
+          fi
+
+          BAD_TRACKED="$(
+            printf '%s\n' "$TRACKED_CHANGED" |
+            sed '/^$/d' |
+            grep -vxF "$ASSIGNED" || true
+          )"
+
+          if [ -n "$BAD_TRACKED" ]; then
+            echo "ERROR: Agent changed files outside assigned scope:"
+            printf '%s\n' "$BAD_TRACKED"
+            exit 1
+          fi
+
+          if [ -n "$UNTRACKED_CHANGED" ]; then
+            echo "ERROR: Agent created untracked files:"
+            printf '%s\n' "$UNTRACKED_CHANGED"
+            exit 1
+          fi
+
+          if git diff --quiet "$BASE_SHA" -- "$ASSIGNED"; then
+            echo "NO_CHANGE" > agent.noop
+            echo "Agent 3: NO CHANGE"
+          else
+            git diff "$BASE_SHA" -- "$ASSIGNED" > agent.patch
+            test -s agent.patch
+            echo "Agent 3: PATCH CREATED"
+          fi
+
+      - name: Upload Admin artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: bookinglab-agent-3-admin
+          path: |
+            agent.patch
+            agent.noop
+          if-no-files-found: ignore
+
+
+  agent-public:
     name: Agent 4 - GLM Public
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -217,107 +539,18 @@ jobs:
 
         FIRST inspect the existing implementation carefully.
 
-        If the current implementation already satisfies the task, make NO source-code changes and finish successfully.
+        If the current implementation already satisfies the task:
+        - Make NO source-code changes.
+        - Do NOT create a commit.
+        - Finish successfully.
 
-        If a real defect exists, make the smallest safe change necessary, only in:
-        web/app/page.tsx
+        If a real defect exists:
+        - Make the smallest safe change necessary.
+        - Modify ONLY web/app/page.tsx.
+        - Do not create speculative improvements.
+        - Do not rewrite the page.
 
-        Do not create speculative improvements.
-
-        After the task, ensure the assigned file remains valid TypeScript/TSX.
-
-  agent-api-run:
-    name: API Agent Execution
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v7
-        with:
-          node-version: 22
-
-      - name: Install API dependencies
-        working-directory: api
-        run: npm ci
-
-      - name: Install OpenCode
-        run: npm install -g opencode-ai@1.18.31
-
-      - name: Record baseline
-        run: |
-          BASE_SHA="$(git rev-parse HEAD)"
-          echo "BASE_SHA=$BASE_SHA" >> "$GITHUB_ENV"
-          echo "Baseline: $BASE_SHA"
-
-      - name: Run Nemotron agent
-        timeout-minutes: 10
-        run: |
-          set -euo pipefail
-
-          opencode run \
-            --model "nvidia/nvidia/nemotron-3-ultra-550b-a55b" \
-            --print-logs \
-            "$AGENT_PROMPT"
-
-      - name: Validate API TypeScript
-        working-directory: api
-        timeout-minutes: 3
-        run: |
-          set -euo pipefail
-          timeout 150s npm exec --no -- tsc --noEmit
-
-      - name: Verify API scope and create artifact
-        timeout-minutes: 2
-        run: |
-          set -euo pipefail
-
-          ASSIGNED="api/src/index.ts"
-
-          CHANGED="$(git diff --name-only "$BASE_SHA")"
-
-          echo "Changed files:"
-          if [ -n "$CHANGED" ]; then
-            printf '%s\n' "$CHANGED"
-          else
-            echo "NONE"
-          fi
-
-          BAD="$(printf '%s\n' "$CHANGED" | sed '/^$/d' | grep -vxF "$ASSIGNED" || true)"
-
-          if [ -n "$BAD" ]; then
-            echo "ERROR: Agent changed files outside assigned scope:"
-            printf '%s\n' "$BAD"
-            exit 1
-          fi
-
-          if git diff --quiet "$BASE_SHA" -- "$ASSIGNED"; then
-            echo "NO_CHANGE" > agent.noop
-            echo "Agent 1 made no source changes."
-          else
-            git diff "$BASE_SHA" -- "$ASSIGNED" > agent.patch
-            test -s agent.patch
-            echo "Agent 1 produced a patch."
-          fi
-
-      - name: Upload API artifact
-        uses: actions/upload-artifact@v6
-        with:
-          name: bookinglab-agent-1-api
-          path: |
-            agent.patch
-            agent.noop
-          if-no-files-found: ignore
-
-  agent-dashboard-run:
-    name: Dashboard Agent Execution
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
+        Ensure the final assigned file is valid TypeScript/TSX.
 
     steps:
       - name: Checkout repository
@@ -339,16 +572,17 @@ jobs:
 
       - name: Record baseline
         run: |
+          set -euo pipefail
           BASE_SHA="$(git rev-parse HEAD)"
           echo "BASE_SHA=$BASE_SHA" >> "$GITHUB_ENV"
           echo "Baseline: $BASE_SHA"
 
-      - name: Run GLM agent
+      - name: Run GLM
         timeout-minutes: 10
         run: |
           set -euo pipefail
 
-          opencode run \
+          timeout 8m opencode run \
             --model "nvidia/z-ai/glm-5.3" \
             --print-logs \
             "$AGENT_PROMPT"
@@ -358,215 +592,57 @@ jobs:
         timeout-minutes: 3
         run: |
           set -euo pipefail
-          timeout 150s npm exec --no -- tsc --noEmit
+          timeout 150s npm exec --no -- tsc --noEmit --incremental false
 
-      - name: Verify Dashboard scope and create artifact
-        timeout-minutes: 2
-        run: |
-          set -euo pipefail
-
-          ASSIGNED="web/app/dashboard/page.tsx"
-
-          CHANGED="$(git diff --name-only "$BASE_SHA")"
-
-          echo "Changed files:"
-          if [ -n "$CHANGED" ]; then
-            printf '%s\n' "$CHANGED"
-          else
-            echo "NONE"
-          fi
-
-          BAD="$(printf '%s\n' "$CHANGED" | sed '/^$/d' | grep -vxF "$ASSIGNED" || true)"
-
-          if [ -n "$BAD" ]; then
-            echo "ERROR: Agent changed files outside assigned scope:"
-            printf '%s\n' "$BAD"
-            exit 1
-          fi
-
-          if git diff --quiet "$BASE_SHA" -- "$ASSIGNED"; then
-            echo "NO_CHANGE" > agent.noop
-            echo "Agent 2 made no source changes."
-          else
-            git diff "$BASE_SHA" -- "$ASSIGNED" > agent.patch
-            test -s agent.patch
-            echo "Agent 2 produced a patch."
-          fi
-
-      - name: Upload Dashboard artifact
-        uses: actions/upload-artifact@v6
-        with:
-          name: bookinglab-agent-2-dashboard
-          path: |
-            agent.patch
-            agent.noop
-          if-no-files-found: ignore
-
-  agent-admin-run:
-    name: Admin Agent Execution
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v7
-        with:
-          node-version: 22
-
-      - name: Install Web dependencies
-        working-directory: web
-        run: npm ci
-
-      - name: Install OpenCode
-        run: npm install -g opencode-ai@1.18.31
-
-      - name: Record baseline
-        run: |
-          BASE_SHA="$(git rev-parse HEAD)"
-          echo "BASE_SHA=$BASE_SHA" >> "$GITHUB_ENV"
-          echo "Baseline: $BASE_SHA"
-
-      - name: Run GLM agent
-        timeout-minutes: 10
-        run: |
-          set -euo pipefail
-
-          opencode run \
-            --model "nvidia/z-ai/glm-5.3" \
-            --print-logs \
-            "$AGENT_PROMPT"
-
-      - name: Validate Web TypeScript
-        working-directory: web
-        timeout-minutes: 3
-        run: |
-          set -euo pipefail
-          timeout 150s npm exec --no -- tsc --noEmit
-
-      - name: Verify Admin scope and create artifact
-        timeout-minutes: 2
-        run: |
-          set -euo pipefail
-
-          ASSIGNED="web/app/admin/page.tsx"
-
-          CHANGED="$(git diff --name-only "$BASE_SHA")"
-
-          echo "Changed files:"
-          if [ -n "$CHANGED" ]; then
-            printf '%s\n' "$CHANGED"
-          else
-            echo "NONE"
-          fi
-
-          BAD="$(printf '%s\n' "$CHANGED" | sed '/^$/d' | grep -vxF "$ASSIGNED" || true)"
-
-          if [ -n "$BAD" ]; then
-            echo "ERROR: Agent changed files outside assigned scope:"
-            printf '%s\n' "$BAD"
-            exit 1
-          fi
-
-          if git diff --quiet "$BASE_SHA" -- "$ASSIGNED"; then
-            echo "NO_CHANGE" > agent.noop
-            echo "Agent 3 made no source changes."
-          else
-            git diff "$BASE_SHA" -- "$ASSIGNED" > agent.patch
-            test -s agent.patch
-            echo "Agent 3 produced a patch."
-          fi
-
-      - name: Upload Admin artifact
-        uses: actions/upload-artifact@v6
-        with:
-          name: bookinglab-agent-3-admin
-          path: |
-            agent.patch
-            agent.noop
-          if-no-files-found: ignore
-
-  agent-public-run:
-    name: Public Agent Execution
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v7
-        with:
-          node-version: 22
-
-      - name: Install Web dependencies
-        working-directory: web
-        run: npm ci
-
-      - name: Install OpenCode
-        run: npm install -g opencode-ai@1.18.31
-
-      - name: Record baseline
-        run: |
-          BASE_SHA="$(git rev-parse HEAD)"
-          echo "BASE_SHA=$BASE_SHA" >> "$GITHUB_ENV"
-          echo "Baseline: $BASE_SHA"
-
-      - name: Run GLM agent
-        timeout-minutes: 10
-        run: |
-          set -euo pipefail
-
-          opencode run \
-            --model "nvidia/z-ai/glm-5.3" \
-            --print-logs \
-            "$AGENT_PROMPT"
-
-      - name: Validate Web TypeScript
-        working-directory: web
-        timeout-minutes: 3
-        run: |
-          set -euo pipefail
-          timeout 150s npm exec --no -- tsc --noEmit
-
-      - name: Verify Public scope and create artifact
+      - name: Verify scope and create artifact
         timeout-minutes: 2
         run: |
           set -euo pipefail
 
           ASSIGNED="web/app/page.tsx"
 
-          CHANGED="$(git diff --name-only "$BASE_SHA")"
+          TRACKED_CHANGED="$(git diff --name-only "$BASE_SHA")"
+          UNTRACKED_CHANGED="$(git ls-files --others --exclude-standard)"
 
-          echo "Changed files:"
-          if [ -n "$CHANGED" ]; then
-            printf '%s\n' "$CHANGED"
+          echo "Tracked changes:"
+          if [ -n "$TRACKED_CHANGED" ]; then
+            printf '%s\n' "$TRACKED_CHANGED"
           else
             echo "NONE"
           fi
 
-          BAD="$(printf '%s\n' "$CHANGED" | sed '/^$/d' | grep -vxF "$ASSIGNED" || true)"
+          echo "Untracked files:"
+          if [ -n "$UNTRACKED_CHANGED" ]; then
+            printf '%s\n' "$UNTRACKED_CHANGED"
+          else
+            echo "NONE"
+          fi
 
-          if [ -n "$BAD" ]; then
+          BAD_TRACKED="$(
+            printf '%s\n' "$TRACKED_CHANGED" |
+            sed '/^$/d' |
+            grep -vxF "$ASSIGNED" || true
+          )"
+
+          if [ -n "$BAD_TRACKED" ]; then
             echo "ERROR: Agent changed files outside assigned scope:"
-            printf '%s\n' "$BAD"
+            printf '%s\n' "$BAD_TRACKED"
+            exit 1
+          fi
+
+          if [ -n "$UNTRACKED_CHANGED" ]; then
+            echo "ERROR: Agent created untracked files:"
+            printf '%s\n' "$UNTRACKED_CHANGED"
             exit 1
           fi
 
           if git diff --quiet "$BASE_SHA" -- "$ASSIGNED"; then
             echo "NO_CHANGE" > agent.noop
-            echo "Agent 4 made no source changes."
+            echo "Agent 4: NO CHANGE"
           else
             git diff "$BASE_SHA" -- "$ASSIGNED" > agent.patch
             test -s agent.patch
-            echo "Agent 4 produced a patch."
+            echo "Agent 4: PATCH CREATED"
           fi
 
       - name: Upload Public artifact
