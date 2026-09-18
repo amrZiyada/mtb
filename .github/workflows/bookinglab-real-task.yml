@@ -164,6 +164,7 @@ jobs:
 
       - name: Clean generated TypeScript cache
         run: |
+          rm -f opencode.json
           find . -name "*.tsbuildinfo" -type f -delete
 
       - name: Verify scope
@@ -380,6 +381,7 @@ jobs:
 
       - name: Clean generated TypeScript cache
         run: |
+          rm -f opencode.json
           find . -name "*.tsbuildinfo" -type f -delete
 
       - name: Verify scope
@@ -601,6 +603,7 @@ jobs:
 
       - name: Clean generated TypeScript cache
         run: |
+          rm -f opencode.json
           find . -name "*.tsbuildinfo" -type f -delete
 
       - name: Verify scope
@@ -812,6 +815,7 @@ jobs:
 
       - name: Clean generated TypeScript cache
         run: |
+          rm -f opencode.json
           find . -name "*.tsbuildinfo" -type f -delete
 
       - name: Verify scope
