@@ -1,0 +1,236 @@
+name: BookingLab Model Preflight
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  NVIDIA_BASE_URL: https://integrate.api.nvidia.com/v1
+  OPENCODE_VERSION: 1.18.31
+
+jobs:
+
+  # ============================================================
+  # STEP 3.5 FLASH
+  # ============================================================
+  test-step:
+    name: "Test - Step 3.5 Flash"
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+
+    env:
+      NVIDIA_MODEL_ID: stepfun-ai/step-3.5-flash
+      OPENCODE_MODEL: nvidia/stepfun-ai/step-3.5-flash
+
+    steps:
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install OpenCode
+        run: |
+          set -e
+          npm install -g "opencode-ai@${OPENCODE_VERSION}"
+          opencode --version
+
+      - name: NVIDIA API test
+        env:
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+        run: |
+          set -e
+
+          echo "Testing NVIDIA model:"
+          echo "$NVIDIA_MODEL_ID"
+
+          curl -sS \
+            --connect-timeout 10 \
+            --max-time 45 \
+            "$NVIDIA_BASE_URL/chat/completions" \
+            -H "Authorization: Bearer $NVIDIA_API_KEY" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"model\":\"$NVIDIA_MODEL_ID\",
+              \"messages\":[
+                {
+                  \"role\":\"user\",
+                  \"content\":\"Reply with exactly STEP_3_5_API_OK\"
+                }
+              ],
+              \"temperature\":1,
+              \"max_tokens\":16,
+              \"stream\":false
+            }" \
+            | tee /tmp/step-api.json
+
+          grep -q "STEP_3_5_API_OK" /tmp/step-api.json
+
+      - name: Create OpenCode config
+        run: |
+          cat > opencode.json <<EOF
+          {
+            "\$schema":"https://opencode.ai/config.json",
+            "model":"$OPENCODE_MODEL",
+            "provider":{
+              "nvidia":{
+                "npm":"@ai-sdk/openai-compatible",
+                "name":"NVIDIA NIM",
+                "options":{
+                  "baseURL":"{env:NVIDIA_BASE_URL}",
+                  "apiKey":"{env:NVIDIA_API_KEY}"
+                },
+                "models":{
+                  "$NVIDIA_MODEL_ID":{
+                    "name":"$NVIDIA_MODEL_ID",
+                    "limit":{
+                      "context":256000,
+                      "output":8192
+                    }
+                  }
+                }
+              }
+            }
+          }
+          EOF
+
+          cat opencode.json
+
+      - name: OpenCode read-only agent test
+        env:
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+        run: |
+          set -e
+
+          timeout --foreground 4m \
+            opencode run \
+            --model "$OPENCODE_MODEL" \
+            --print-logs \
+            "Read ONLY web/app/page.tsx from the repository. Do not modify any file. Do not run npm, tsc, tests, or build. Tell me the name of the state/value used for the patient address field and whether the address appears to be included in the public booking payload. Finish immediately."
+
+      - name: Verify no source modifications
+        run: |
+          set -e
+
+          rm -f opencode.json
+          find . -name "*.tsbuildinfo" -type f -delete
+
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "ERROR: OpenCode modified the repository."
+            git status --short
+            exit 1
+          fi
+
+          echo "STEP 3.5 FLASH PASSED"
+
+
+  # ============================================================
+  # KIMI K2 THINKING
+  # ============================================================
+  test-kimi:
+    name: "Test - Kimi K2 Thinking"
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+
+    env:
+      NVIDIA_MODEL_ID: moonshotai/kimi-k2-thinking
+      OPENCODE_MODEL: nvidia/moonshotai/kimi-k2-thinking
+
+    steps:
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install OpenCode
+        run: |
+          set -e
+          npm install -g "opencode-ai@${OPENCODE_VERSION}"
+          opencode --version
+
+      - name: NVIDIA API test
+        env:
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+        run: |
+          set -e
+
+          echo "Testing NVIDIA model:"
+          echo "$NVIDIA_MODEL_ID"
+
+          curl -sS \
+            --connect-timeout 10 \
+            --max-time 45 \
+            "$NVIDIA_BASE_URL/chat/completions" \
+            -H "Authorization: Bearer $NVIDIA_API_KEY" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"model\":\"$NVIDIA_MODEL_ID\",
+              \"messages\":[
+                {
+                  \"role\":\"user\",
+                  \"content\":\"Reply with exactly KIMI_API_OK\"
+                }
+              ],
+              \"temperature\":1,
+              \"max_tokens\":16,
+              \"stream\":false
+            }" \
+            | tee /tmp/kimi-api.json
+
+          grep -q "KIMI_API_OK" /tmp/kimi-api.json
+
+      - name: Create OpenCode config
+        run: |
+          cat > opencode.json <<EOF
+          {
+            "\$schema":"https://opencode.ai/config.json",
+            "model":"$OPENCODE_MODEL",
+            "provider":{
+              "nvidia":{
+                "npm":"@ai-sdk/openai-compatible",
+                "name":"NVIDIA NIM",
+                "options":{
+                  "baseURL":"{env:NVIDIA_BASE_URL}",
+                  "apiKey":"{env:NVIDIA_API_KEY}"
+                },
+                "models":{
+                  "$NVIDIA_MODEL_ID":{
+                    "name":"$NVIDIA_MODEL_ID",
+                    "limit":{
+                      "context":256000,
+                      "output":8192
+                    }
+                  }
+                }
+              }
+            }
+          }
+          EOF
+
+          cat opencode.json
+
+      - name: OpenCode read-only agent test
+        env:
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+        run: |
+          set -e
+
+          timeout --foreground 4m \
+            opencode run \
+            --model "$OPENCODE_MODEL" \
+            --print-logs \
+            "Read ONLY web/app/admin/page.tsx from the repository. Do not modify any file. Do not run npm, tsc, tests, or build. Identify the existing patient address field and explain briefly how its value reaches the existing save payload. Finish immediately."
+
+      - name: Verify no source modifications
+        run: |
+          set -e
+
+          rm -f opencode.json
+          find . -name "*.tsbuildinfo" -type f -delete
+
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "ERROR: OpenCode modified the repository."
+            git status --short
+            exit 1
+          fi
+
+          echo "KIMI K2 THINKING PASSED"
