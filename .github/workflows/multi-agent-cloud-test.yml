@@ -1,4 +1,4 @@
-name: Multi-Agent Cloud Test
+name: GLM Cloud Test
 
 on:
   workflow_dispatch:
@@ -7,21 +7,20 @@ permissions:
   contents: read
 
 jobs:
-  agents:
-    name: Agent ${{ matrix.agent }}
+  glm-agents:
+    name: ${{ matrix.agent }}
     runs-on: ubuntu-latest
 
     strategy:
       fail-fast: false
       max-parallel: 2
-
       matrix:
         include:
-          - agent: "1-Nemotron"
-            model: "nvidia/nemotron-3-ultra-550b-a55b"
+          - agent: "Agent 3 - GLM-5.3"
+            model: "z-ai/glm-5-3"
 
-          - agent: "2-DeepSeek"
-            model: "deepseek-ai/deepseek-v4-flash-0731"
+          - agent: "Agent 4 - GLM-5.3-Flash"
+            model: "z-ai/glm-5-3-flash"
 
     timeout-minutes: 10
 
@@ -31,7 +30,7 @@ jobs:
         with:
           fetch-depth: 1
 
-      - name: Test NVIDIA model directly
+      - name: Test NVIDIA GLM model directly
         env:
           NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
           NVIDIA_MODEL: ${{ matrix.model }}
@@ -54,7 +53,7 @@ jobs:
               \"messages\": [
                 {
                   \"role\": \"user\",
-                  \"content\": \"Reply with exactly: NVIDIA MODEL TEST OK\"
+                  \"content\": \"Reply with exactly: GLM MODEL TEST OK\"
                 }
               ],
               \"max_tokens\": 20,
@@ -70,9 +69,9 @@ jobs:
 
           if [ "$HTTP_STATUS" -lt 200 ] || [ "$HTTP_STATUS" -ge 300 ]; then
             echo
-            echo "NVIDIA MODEL TEST FAILED"
+            echo "GLM MODEL TEST FAILED"
             exit 1
           fi
 
           echo
-          echo "NVIDIA MODEL TEST PASSED"
+          echo "GLM MODEL TEST PASSED"
