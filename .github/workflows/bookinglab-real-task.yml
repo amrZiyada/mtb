@@ -89,26 +89,45 @@ jobs:
           NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
         run: |
           set -e
-          HTTP_CODE="$(
-            curl -sS \
-              --max-time 45 \
-              -o /tmp/nvidia-preflight.json \
-              -w "%{http_code}" \
-              "$NVIDIA_BASE_URL/chat/completions" \
-              -H "Authorization: Bearer $NVIDIA_API_KEY" \
-              -H "Content-Type: application/json" \
-              -d "{
-                \"model\":\"$NVIDIA_MODEL_ID\",
-                \"messages\":[{\"role\":\"user\",\"content\":\"Reply with exactly OK\"}],
-                \"max_tokens\":4,
-                \"stream\":false
-              }"
-          )"
+          ATTEMPTS=3
+          for attempt in $(seq 1 "$ATTEMPTS"); do
+            if HTTP_CODE="$(
+              curl -sS \
+                --max-time 45 \
+                -o /tmp/nvidia-preflight.json \
+                -w "%{http_code}" \
+                "$NVIDIA_BASE_URL/chat/completions" \
+                -H "Authorization: Bearer $NVIDIA_API_KEY" \
+                -H "Content-Type: application/json" \
+                -d "{
+                  \"model\":\"$NVIDIA_MODEL_ID\",
+                  \"messages\":[{\"role\":\"user\",\"content\":\"Reply with exactly OK\"}],
+                  \"max_tokens\":4,
+                  \"stream\":false
+                }"
+            )"; then
+              echo "NVIDIA preflight attempt $attempt/$ATTEMPTS HTTP: $HTTP_CODE"
+              cat /tmp/nvidia-preflight.json
 
-          echo "NVIDIA preflight HTTP: $HTTP_CODE"
-          cat /tmp/nvidia-preflight.json
+              if [ "$HTTP_CODE" = "200" ]; then
+                exit 0
+              fi
 
-          test "$HTTP_CODE" = "200"
+              if [ "$HTTP_CODE" -ge 400 ] && [ "$HTTP_CODE" -lt 500 ]; then
+                echo "NVIDIA preflight failed with non-retriable client error."
+                exit 1
+              fi
+            else
+              echo "NVIDIA preflight curl request failed on attempt $attempt/$ATTEMPTS"
+            fi
+
+            if [ "$attempt" -lt "$ATTEMPTS" ]; then
+              sleep 2
+            fi
+          done
+
+          echo "NVIDIA preflight failed after $ATTEMPTS attempts."
+          exit 1
 
       - name: Create OpenCode config
         env:
