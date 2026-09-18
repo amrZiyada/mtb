@@ -1,7 +1,11 @@
-name: BookingLab Real Cloud Agents v3.5
+name: BookingLab Real Task
 
 on:
   workflow_dispatch:
+
+concurrency:
+  group: bookinglab-real-task
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -12,1077 +16,641 @@ env:
 
 jobs:
 
-  # ============================================================
-  # AGENT 1 — Nemotron 3 Ultra — API
-  # ============================================================
-  agent-api-nemotron:
-    name: "Agent 1 - Nemotron Ultra - API"
+  api-agent:
+    name: "Agent 1 - API - Nemotron Ultra"
     runs-on: ubuntu-latest
-    timeout-minutes: 12
-
-    env:
-      NVIDIA_MODEL_ID: nvidia/nemotron-3-ultra-550b-a55b
-      OPENCODE_MODEL: nvidia/nvidia/nemotron-3-ultra-550b-a55b
-      ASSIGNED_FILE: api/src/index.ts
-
-      AGENT_PROMPT: |
-        You are Agent 1 in a controlled BookingLab engineering task.
-
-        ONLY ASSIGNED FILE:
-        api/src/index.ts
-
-        TASK:
-        Audit the patient address flow in the API and fix only real defects.
-
-        Requirements:
-        - Public booking address must be accepted and persisted.
-        - Existing booking address must remain intact when edited.
-        - Staff/admin booking edits must preserve address unless explicitly changed.
-        - Do not recalculate original_total during ordinary booking edits.
-        - Do not change statuses.
-        - Valid statuses are exactly:
-          PENDING -> ASSIGNED -> ACCEPTED -> CONFIRMED -> DONE
-        - There is NO CANCELLED status.
-        - Do not change roles, permissions, assignment rules, commissions,
-          pricing, authentication, sessions, or unrelated business logic.
-
-        HARD SCOPE:
-        - Only modify api/src/index.ts.
-        - Do not modify any other source file.
-        - Do not modify package files.
-        - Do not modify migrations.
-        - Do not modify configuration.
-        - Do not refactor unrelated code.
-        - Do not create tests or documentation.
-        - Do not push.
-        - Do not create a PR.
-
-        If the implementation is already correct:
-        make NO source change and finish immediately.
-
-        If a real defect exists:
-        fix only that defect.
-
-        Before finishing, commit only the assigned file with:
-        fix: BookingLab API address flow
+    timeout-minutes: 15
 
     steps:
-
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Record baseline
-        run: |
-          set -e
-          git status --short
-          git rev-parse HEAD > /tmp/base_sha
 
       - name: Install OpenCode
         run: |
-          set -e
+          set -euo pipefail
           npm install -g "opencode-ai@${OPENCODE_VERSION}"
           opencode --version
 
-      - name: NVIDIA model preflight with retry
+      - name: Configure OpenCode
         env:
           NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
         run: |
-          set -u
-
-          for attempt in 1 2 3; do
-            echo "NVIDIA preflight attempt $attempt/3"
-
-            set +e
-
-            HTTP_CODE="$(
-              curl -sS \
-                --connect-timeout 10 \
-                --max-time 30 \
-                -o /tmp/nvidia-preflight.json \
-                -w "%{http_code}" \
-                "$NVIDIA_BASE_URL/chat/completions" \
-                -H "Authorization: Bearer $NVIDIA_API_KEY" \
-                -H "Content-Type: application/json" \
-                -d "{
-                  \"model\":\"$NVIDIA_MODEL_ID\",
-                  \"messages\":[
-                    {
-                      \"role\":\"user\",
-                      \"content\":\"Reply with exactly OK\"
-                    }
-                  ],
-                  \"max_tokens\":4,
-                  \"stream\":false
-                }"
-            )"
-
-            CURL_CODE=$?
-
-            echo "curl exit: $CURL_CODE"
-            echo "HTTP: $HTTP_CODE"
-
-            if [ -f /tmp/nvidia-preflight.json ]; then
-              cat /tmp/nvidia-preflight.json
-            fi
-
-            if [ "$CURL_CODE" -eq 0 ] &&
-               { [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "202" ]; }; then
-              echo "NVIDIA model preflight PASSED"
-              exit 0
-            fi
-
-            if [ "$HTTP_CODE" = "400" ] ||
-               [ "$HTTP_CODE" = "401" ] ||
-               [ "$HTTP_CODE" = "403" ] ||
-               [ "$HTTP_CODE" = "404" ] ||
-               [ "$HTTP_CODE" = "422" ]; then
-              echo "Permanent NVIDIA API error: HTTP $HTTP_CODE"
-              exit 1
-            fi
-
-            if [ "$attempt" -lt 3 ]; then
-              echo "Transient NVIDIA failure. Retrying in 10 seconds..."
-              sleep 10
-            fi
-          done
-
-          echo "NVIDIA preflight failed after 3 attempts."
-          exit 1
-
-      - name: Create OpenCode config
-        run: |
-          set -e
-
-          cat > opencode.json <<EOF
+          cat > opencode.json <<'JSON'
           {
-            "\$schema":"https://opencode.ai/config.json",
-            "model":"$OPENCODE_MODEL",
-            "provider":{
-              "nvidia":{
-                "npm":"@ai-sdk/openai-compatible",
-                "name":"NVIDIA NIM",
-                "options":{
-                  "baseURL":"{env:NVIDIA_BASE_URL}",
-                  "apiKey":"{env:NVIDIA_API_KEY}"
+            "$schema": "https://opencode.ai/config.json",
+            "model": "nvidia/nvidia/nemotron-3-ultra-550b-a55b",
+            "provider": {
+              "nvidia": {
+                "npm": "@ai-sdk/openai-compatible",
+                "name": "NVIDIA NIM",
+                "options": {
+                  "baseURL": "{env:NVIDIA_BASE_URL}",
+                  "apiKey": "{env:NVIDIA_API_KEY}"
                 },
-                "models":{
-                  "$NVIDIA_MODEL_ID":{
-                    "name":"$NVIDIA_MODEL_ID",
-                    "limit":{
-                      "context":1000000,
-                      "output":16384
+                "models": {
+                  "nemotron-3-ultra-550b-a55b": {
+                    "name": "nvidia/nemotron-3-ultra-550b-a55b",
+                    "limit": {
+                      "context": 1000000,
+                      "output": 32768
                     }
                   }
                 }
               }
             }
           }
-          EOF
+          JSON
 
-      - name: Run Agent
+      - name: Run API agent
         env:
           NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+          NVIDIA_BASE_URL: ${{ env.NVIDIA_BASE_URL }}
         run: |
-          set +e
+          set -euo pipefail
 
-          timeout --foreground 8m \
-            opencode run \
-            --model "$OPENCODE_MODEL" \
+          timeout 720s opencode run \
+            --model nvidia/nvidia/nemotron-3-ultra-550b-a55b \
             --print-logs \
-            "$AGENT_PROMPT"
+            "You are Agent 1 for the BookingLab production repository.
 
-          CODE=$?
+Your ONLY allowed source file is:
+api/src/index.ts
 
-          echo "OpenCode exit code: $CODE"
+Do not modify any other source file.
+Do not create new source files.
+Do not modify migrations.
+Do not modify package files.
+Do not modify workflow files.
+Do not commit or push anything.
 
-          if [ "$CODE" -eq 124 ]; then
-            echo "ERROR: OpenCode timed out."
-            git reset --hard HEAD
-            exit 124
-          fi
+TASK:
+Implement and verify the pending BookingLab reservation-edit/details consistency work in api/src/index.ts.
 
-          if [ "$CODE" -ne 0 ]; then
-            echo "ERROR: OpenCode failed."
-            git reset --hard HEAD
-            exit "$CODE"
-          fi
+Requirements:
+1. Preserve the existing BookingLab business rules and authentication/authorization.
+2. Reservation status workflow remains EXACTLY:
+   PENDING -> ASSIGNED -> ACCEPTED -> CONFIRMED -> DONE
+   There is NO CANCELLED status.
+3. Preserve original_total once a reservation has been created. Editing a reservation must NOT silently recalculate or overwrite original_total.
+4. Reservation editing must correctly preserve/update the editable patient data already supported by the application, including:
+   patient_name, age, gender, phone, address, preferred_at.
+5. Address must be accepted and persisted when an authorized edit supplies it.
+6. Original selected tests must remain represented correctly when a reservation is edited. Do not confuse original tests with extra tests.
+7. Extra tests remain separate from the original reservation tests and must not change commission rules.
+8. Preserve all existing commission/business logic.
+9. Preserve staff edit restrictions and finalized-record protection.
+10. Preserve admin privileges.
+11. Do not weaken authentication, authorization, CSRF, rate limiting, session handling, or input validation.
+12. Inspect the existing code first and make the smallest safe production-quality changes necessary.
+13. Fix any TypeScript errors caused by your changes.
+14. Run the relevant TypeScript check before finishing.
 
-          exit 0
+Do not merely describe the changes. Actually edit api/src/index.ts and verify it.
 
-      - name: Normalize agent result
+At the end, print a short summary of what you changed and the validation command/result."
+
+      - name: Validate agent scope
         run: |
-          set -e
-
+          set -euo pipefail
           rm -f opencode.json
-          find . -name "*.tsbuildinfo" -type f -delete
-
-          BASE_SHA="$(cat /tmp/base_sha)"
-
-          STATUS="$(git status --porcelain --untracked-files=all)"
-
-          echo "Working tree after cleanup:"
-          printf '%s\n' "$STATUS"
-
-          OTHER_FILES="$(
-            git status --porcelain --untracked-files=all |
-            awk '{print substr($0,4)}' |
-            grep -v "^${ASSIGNED_FILE}$" || true
-          )"
-
-          if [ -n "$OTHER_FILES" ]; then
-            echo "ERROR: Agent touched files outside assigned scope:"
-            echo "$OTHER_FILES"
-            git reset --hard HEAD
-            exit 1
-          fi
-
-          if git diff --quiet HEAD -- "$ASSIGNED_FILE" &&
-             git diff --cached --quiet HEAD -- "$ASSIGNED_FILE"; then
-            echo "No uncommitted assigned-file changes."
-          else
-            echo "Agent changed assigned file without committing."
-            git add "$ASSIGNED_FILE"
-            git commit -m "fix: BookingLab API address flow"
-          fi
-
-          echo "Final changed files:"
-          git diff --name-only "$BASE_SHA" HEAD
-
-      - name: Verify scope
-        run: |
-          set -e
-
-          BASE_SHA="$(cat /tmp/base_sha)"
-          CHANGED="$(git diff --name-only "$BASE_SHA" HEAD)"
 
           echo "Changed files:"
-          printf '%s\n' "$CHANGED"
+          git status --short
 
-          if [ -n "$CHANGED" ] && [ "$CHANGED" != "$ASSIGNED_FILE" ]; then
-            echo "ERROR: Commit contains files outside assigned scope."
+          bad="$(git status --porcelain | awk '{print $2}' | grep -v '^api/src/index.ts$' || true)"
+
+          if [ -n "$bad" ]; then
+            echo "::error::API agent modified files outside its allowed scope:"
+            echo "$bad"
             exit 1
           fi
 
-          if [ -n "$(git status --short --untracked-files=all)" ]; then
-            echo "ERROR: Unexpected working tree changes."
-            git status --short --untracked-files=all
+      - name: TypeScript check
+        working-directory: api
+        run: |
+          set -euo pipefail
+          npx tsc --noEmit
+
+      - name: Create patch
+        run: |
+          set -euo pipefail
+          git diff --binary -- api/src/index.ts > /tmp/api-agent.patch
+          test -s /tmp/api-agent.patch || {
+            echo "::error::API agent produced no changes"
+            exit 1
+          }
+
+      - name: Upload API patch
+        uses: actions/upload-artifact@v4
+        with:
+          name: bookinglab-api-patch
+          path: /tmp/api-agent.patch
+          retention-days: 1
+
+
+  dashboard-agent:
+    name: "Agent 2 - Dashboard - Nemotron Super"
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install OpenCode
+        run: |
+          set -euo pipefail
+          npm install -g "opencode-ai@${OPENCODE_VERSION}"
+          opencode --version
+
+      - name: Configure OpenCode
+        env:
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+        run: |
+          cat > opencode.json <<'JSON'
+          {
+            "$schema": "https://opencode.ai/config.json",
+            "model": "nvidia/nvidia/nemotron-3-super-120b-a12b",
+            "provider": {
+              "nvidia": {
+                "npm": "@ai-sdk/openai-compatible",
+                "name": "NVIDIA NIM",
+                "options": {
+                  "baseURL": "{env:NVIDIA_BASE_URL}",
+                  "apiKey": "{env:NVIDIA_API_KEY}"
+                },
+                "models": {
+                  "nemotron-3-super-120b-a12b": {
+                    "name": "nvidia/nemotron-3-super-120b-a12b",
+                    "limit": {
+                      "context": 1000000,
+                      "output": 32768
+                    }
+                  }
+                }
+              }
+            }
+          }
+          JSON
+
+      - name: Run Dashboard agent
+        env:
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+          NVIDIA_BASE_URL: ${{ env.NVIDIA_BASE_URL }}
+        run: |
+          set -euo pipefail
+
+          timeout 720s opencode run \
+            --model nvidia/nvidia/nemotron-3-super-120b-a12b \
+            --print-logs \
+            "You are Agent 2 for the BookingLab production repository.
+
+Your ONLY allowed source file is:
+web/app/dashboard/page.tsx
+
+Do not modify any other source file.
+Do not create new source files.
+Do not modify API files.
+Do not modify migrations.
+Do not modify package files.
+Do not modify workflow files.
+Do not commit or push anything.
+
+TASK:
+Bring the staff dashboard reservation details/edit UI into consistency with the current BookingLab reservation model and API.
+
+Requirements:
+1. Inspect the existing dashboard code and API usage before changing anything.
+2. Preserve the existing staff authentication/session flow.
+3. Preserve role and permission behavior.
+4. Staff users must only see/edit data that the API already authorizes.
+5. Reservation details must correctly display the patient address when present.
+6. Reservation edit UI must correctly load and save:
+   patient_name, age, gender, phone, address, preferred_at.
+7. Preserve the distinction between original selected tests and extra tests.
+8. Display original test metadata when available without inventing values.
+9. Preserve existing reservation status behavior.
+10. Preserve the special permission allowing an assigned DOCTOR/REP to edit a CONFIRMED reservation when the API authorizes it.
+11. Do not introduce client-side permission bypasses.
+12. Do not alter commission calculations.
+13. Keep the existing responsive/mobile UI behavior.
+14. Make the smallest safe production-quality changes.
+15. Run the relevant TypeScript check before finishing.
+
+Do not merely describe changes. Actually edit web/app/dashboard/page.tsx and verify it.
+
+At the end, print a short summary and validation result."
+
+      - name: Validate agent scope
+        run: |
+          set -euo pipefail
+          rm -f opencode.json
+
+          echo "Changed files:"
+          git status --short
+
+          bad="$(git status --porcelain | awk '{print $2}' | grep -v '^web/app/dashboard/page.tsx$' || true)"
+
+          if [ -n "$bad" ]; then
+            echo "::error::Dashboard agent modified files outside its allowed scope:"
+            echo "$bad"
             exit 1
           fi
+
+      - name: TypeScript check
+        working-directory: web
+        run: |
+          set -euo pipefail
+          npx tsc --noEmit
+
+      - name: Create patch
+        run: |
+          set -euo pipefail
+          git diff --binary -- web/app/dashboard/page.tsx > /tmp/dashboard-agent.patch
+          test -s /tmp/dashboard-agent.patch || {
+            echo "::error::Dashboard agent produced no changes"
+            exit 1
+          }
+
+      - name: Upload Dashboard patch
+        uses: actions/upload-artifact@v4
+        with:
+          name: bookinglab-dashboard-patch
+          path: /tmp/dashboard-agent.patch
+          retention-days: 1
+
+
+  admin-agent:
+    name: "Agent 3 - Admin - Nemotron Ultra"
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install OpenCode
+        run: |
+          set -euo pipefail
+          npm install -g "opencode-ai@${OPENCODE_VERSION}"
+          opencode --version
+
+      - name: Configure OpenCode
+        env:
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+        run: |
+          cat > opencode.json <<'JSON'
+          {
+            "$schema": "https://opencode.ai/config.json",
+            "model": "nvidia/nvidia/nemotron-3-ultra-550b-a55b",
+            "provider": {
+              "nvidia": {
+                "npm": "@ai-sdk/openai-compatible",
+                "name": "NVIDIA NIM",
+                "options": {
+                  "baseURL": "{env:NVIDIA_BASE_URL}",
+                  "apiKey": "{env:NVIDIA_API_KEY}"
+                },
+                "models": {
+                  "nemotron-3-ultra-550b-a55b": {
+                    "name": "nvidia/nemotron-3-ultra-550b-a55b",
+                    "limit": {
+                      "context": 1000000,
+                      "output": 32768
+                    }
+                  }
+                }
+              }
+            }
+          }
+          JSON
+
+      - name: Run Admin agent
+        env:
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+          NVIDIA_BASE_URL: ${{ env.NVIDIA_BASE_URL }}
+        run: |
+          set -euo pipefail
+
+          timeout 720s opencode run \
+            --model nvidia/nvidia/nemotron-3-ultra-550b-a55b \
+            --print-logs \
+            "You are Agent 3 for the BookingLab production repository.
+
+Your ONLY allowed source file is:
+web/app/admin/page.tsx
+
+Do not modify any other source file.
+Do not create new source files.
+Do not modify API files.
+Do not modify migrations.
+Do not modify package files.
+Do not modify workflow files.
+Do not commit or push anything.
+
+TASK:
+Bring the admin reservation details/edit UI into consistency with the current BookingLab reservation model and API.
+
+Requirements:
+1. Inspect the existing admin page and API usage before changing anything.
+2. Preserve admin authentication and authorization.
+3. Admin retains full reservation editing privileges subject to finalized-record protection.
+4. Reservation details must correctly display patient address when present.
+5. Reservation edit UI must correctly load and save:
+   patient_name, age, gender, phone, address, preferred_at.
+6. Preserve original_total. The UI must not suggest that editing patient information recalculates historical original pricing.
+7. Preserve the distinction between original selected tests and extra tests.
+8. Display original test metadata when available without inventing values.
+9. Preserve reservation status workflow:
+   PENDING -> ASSIGNED -> ACCEPTED -> CONFIRMED -> DONE.
+10. There is no CANCELLED status.
+11. Preserve assignment behavior and existing role restrictions.
+12. Do not change commission calculations.
+13. Preserve responsive/mobile behavior.
+14. Make the smallest safe production-quality changes.
+15. Run the relevant TypeScript check before finishing.
+
+Do not merely describe changes. Actually edit web/app/admin/page.tsx and verify it.
+
+At the end, print a short summary and validation result."
+
+      - name: Validate agent scope
+        run: |
+          set -euo pipefail
+          rm -f opencode.json
+
+          echo "Changed files:"
+          git status --short
+
+          bad="$(git status --porcelain | awk '{print $2}' | grep -v '^web/app/admin/page.tsx$' || true)"
+
+          if [ -n "$bad" ]; then
+            echo "::error::Admin agent modified files outside its allowed scope:"
+            echo "$bad"
+            exit 1
+          fi
+
+      - name: TypeScript check
+        working-directory: web
+        run: |
+          set -euo pipefail
+          npx tsc --noEmit
+
+      - name: Create patch
+        run: |
+          set -euo pipefail
+          git diff --binary -- web/app/admin/page.tsx > /tmp/admin-agent.patch
+          test -s /tmp/admin-agent.patch || {
+            echo "::error::Admin agent produced no changes"
+            exit 1
+          }
+
+      - name: Upload Admin patch
+        uses: actions/upload-artifact@v4
+        with:
+          name: bookinglab-admin-patch
+          path: /tmp/admin-agent.patch
+          retention-days: 1
+
+
+  public-agent:
+    name: "Agent 4 - Public Booking - Nemotron Super"
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install OpenCode
+        run: |
+          set -euo pipefail
+          npm install -g "opencode-ai@${OPENCODE_VERSION}"
+          opencode --version
+
+      - name: Configure OpenCode
+        env:
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+        run: |
+          cat > opencode.json <<'JSON'
+          {
+            "$schema": "https://opencode.ai/config.json",
+            "model": "nvidia/nvidia/nemotron-3-super-120b-a12b",
+            "provider": {
+              "nvidia": {
+                "npm": "@ai-sdk/openai-compatible",
+                "name": "NVIDIA NIM",
+                "options": {
+                  "baseURL": "{env:NVIDIA_BASE_URL}",
+                  "apiKey": "{env:NVIDIA_API_KEY}"
+                },
+                "models": {
+                  "nemotron-3-super-120b-a12b": {
+                    "name": "nvidia/nemotron-3-super-120b-a12b",
+                    "limit": {
+                      "context": 1000000,
+                      "output": 32768
+                    }
+                  }
+                }
+              }
+            }
+          }
+          JSON
+
+      - name: Run Public booking agent
+        env:
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+          NVIDIA_BASE_URL: ${{ env.NVIDIA_BASE_URL }}
+        run: |
+          set -euo pipefail
+
+          timeout 720s opencode run \
+            --model nvidia/nvidia/nemotron-3-super-120b-a12b \
+            --print-logs \
+            "You are Agent 4 for the BookingLab production repository.
+
+Your ONLY allowed source file is:
+web/app/page.tsx
+
+Do not modify any other source file.
+Do not create new source files.
+Do not modify API files.
+Do not modify migrations.
+Do not modify package files.
+Do not modify workflow files.
+Do not commit or push anything.
+
+TASK:
+Bring the public booking flow into consistency with the current BookingLab reservation test model.
+
+Requirements:
+1. Inspect the existing public booking page and API usage before changing anything.
+2. Preserve the current test search behavior and do not preload the complete test catalog.
+3. Preserve the existing cart behavior: a test can only be added once to a reservation.
+4. Preserve current pricing behavior.
+5. When creating a reservation, preserve the selected original test metadata needed by the reservation details/edit flow, including test code/name/price when those values already exist in the selected test data.
+6. Do not invent test prices or metadata.
+7. Preserve the distinction between original selected tests and extra tests.
+8. Preserve patient fields already collected by the public booking flow, including:
+   patient_name, age, gender, phone, address, preferred_at.
+9. Do not add authentication requirements to public booking.
+10. Preserve duplicate-pending reservation behavior.
+11. Preserve all existing UI/UX and mobile responsiveness unless a change is required for the task.
+12. Do not modify API files.
+13. Make the smallest safe production-quality changes.
+14. Run the relevant TypeScript check before finishing.
+
+Do not merely describe changes. Actually edit web/app/page.tsx and verify it.
+
+At the end, print a short summary and validation result."
+
+      - name: Validate agent scope
+        run: |
+          set -euo pipefail
+          rm -f opencode.json
+
+          echo "Changed files:"
+          git status --short
+
+          bad="$(git status --porcelain | awk '{print $2}' | grep -v '^web/app/page.tsx$' || true)"
+
+          if [ -n "$bad" ]; then
+            echo "::error::Public agent modified files outside its allowed scope:"
+            echo "$bad"
+            exit 1
+          fi
+
+      - name: TypeScript check
+        working-directory: web
+        run: |
+          set -euo pipefail
+          npx tsc --noEmit
+
+      - name: Create patch
+        run: |
+          set -euo pipefail
+          git diff --binary -- web/app/page.tsx > /tmp/public-agent.patch
+          test -s /tmp/public-agent.patch || {
+            echo "::error::Public agent produced no changes"
+            exit 1
+          }
+
+      - name: Upload Public patch
+        uses: actions/upload-artifact@v4
+        with:
+          name: bookinglab-public-patch
+          path: /tmp/public-agent.patch
+          retention-days: 1
+
+
+  integrate:
+    name: "Integration - Apply Patches + Full Validation"
+    needs:
+      - api-agent
+      - dashboard-agent
+      - admin-agent
+      - public-agent
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download API patch
+        uses: actions/download-artifact@v5
+        with:
+          name: bookinglab-api-patch
+          path: /tmp/api
+
+      - name: Download Dashboard patch
+        uses: actions/download-artifact@v5
+        with:
+          name: bookinglab-dashboard-patch
+          path: /tmp/dashboard
+
+      - name: Download Admin patch
+        uses: actions/download-artifact@v5
+        with:
+          name: bookinglab-admin-patch
+          path: /tmp/admin
+
+      - name: Download Public patch
+        uses: actions/download-artifact@v5
+        with:
+          name: bookinglab-public-patch
+          path: /tmp/public
+
+      - name: Apply all agent patches
+        run: |
+          set -euo pipefail
+
+          git apply --check /tmp/api/api-agent.patch
+          git apply --check /tmp/dashboard/dashboard-agent.patch
+          git apply --check /tmp/admin/admin-agent.patch
+          git apply --check /tmp/public/public-agent.patch
+
+          git apply /tmp/api/api-agent.patch
+          git apply /tmp/dashboard/dashboard-agent.patch
+          git apply /tmp/admin/admin-agent.patch
+          git apply /tmp/public/public-agent.patch
+
+          echo "=== Combined diff ==="
+          git diff --stat
+          git status --short
 
       - name: Validate API TypeScript
+        working-directory: api
         run: |
-          set -e
-          cd api
-          npm ci --no-audit --no-fund
-          npx tsc --noEmit --incremental false
-
-      - name: Create artifact
-        run: |
-          set -e
-
-          BASE_SHA="$(cat /tmp/base_sha)"
-
-          if git diff --quiet "$BASE_SHA" HEAD; then
-            echo "NO_CHANGE" > agent.noop
-          else
-            git format-patch -1 HEAD --stdout > agent.patch
-          fi
-
-      - name: Upload agent artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: agent-api-nemotron
-          path: |
-            agent.patch
-            agent.noop
-          if-no-files-found: ignore
-
-
-  # ============================================================
-  # AGENT 2 — Nemotron 3 Ultra — Dashboard
-  # ============================================================
-  agent-dashboard-nemotron:
-    name: "Agent 2 - Nemotron Ultra - Dashboard"
-    runs-on: ubuntu-latest
-    timeout-minutes: 12
-
-    env:
-      NVIDIA_MODEL_ID: nvidia/nemotron-3-ultra-550b-a55b
-      OPENCODE_MODEL: nvidia/nvidia/nemotron-3-ultra-550b-a55b
-      ASSIGNED_FILE: web/app/dashboard/page.tsx
-
-      AGENT_PROMPT: |
-        You are Agent 2 in a controlled BookingLab engineering task.
-
-        ONLY ASSIGNED FILE:
-        web/app/dashboard/page.tsx
-
-        TASK:
-        Audit the staff dashboard patient address flow and fix only real defects.
-
-        Requirements:
-        - Existing reservation address must display correctly.
-        - Permitted staff edits must include address in the save operation.
-        - Address editing must respect existing permission rules.
-        - Do not change statuses.
-        - Do not change permissions.
-        - Do not change commissions.
-        - Do not change pricing.
-        - Do not change original_total.
-        - Do not change authentication or sessions.
-
-        Valid statuses:
-        PENDING -> ASSIGNED -> ACCEPTED -> CONFIRMED -> DONE
-
-        There is NO CANCELLED status.
-
-        HARD SCOPE:
-        - Only modify web/app/dashboard/page.tsx.
-        - Do not modify API files.
-        - Do not modify web/lib/api.ts.
-        - Do not modify package files.
-        - Do not modify migrations.
-        - Do not modify configuration.
-        - Do not refactor unrelated code.
-        - Do not create tests or documentation.
-        - Do not push.
-        - Do not create a PR.
-
-        If the implementation is already correct:
-        make NO source change and finish immediately.
-
-        If a real defect exists:
-        fix only that defect.
-
-        Before finishing, commit only the assigned file with:
-        fix: BookingLab dashboard address flow
-
-    steps:
-
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Record baseline
-        run: |
-          set -e
-          git status --short
-          git rev-parse HEAD > /tmp/base_sha
-
-      - name: Install OpenCode
-        run: |
-          set -e
-          npm install -g "opencode-ai@${OPENCODE_VERSION}"
-          opencode --version
-
-      - name: NVIDIA model preflight with retry
-        env:
-          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
-        run: |
-          set -u
-
-          for attempt in 1 2 3; do
-            echo "NVIDIA preflight attempt $attempt/3"
-
-            set +e
-
-            HTTP_CODE="$(
-              curl -sS \
-                --connect-timeout 10 \
-                --max-time 30 \
-                -o /tmp/nvidia-preflight.json \
-                -w "%{http_code}" \
-                "$NVIDIA_BASE_URL/chat/completions" \
-                -H "Authorization: Bearer $NVIDIA_API_KEY" \
-                -H "Content-Type: application/json" \
-                -d "{
-                  \"model\":\"$NVIDIA_MODEL_ID\",
-                  \"messages\":[{\"role\":\"user\",\"content\":\"Reply with exactly OK\"}],
-                  \"max_tokens\":4,
-                  \"stream\":false
-                }"
-            )"
-
-            CURL_CODE=$?
-
-            echo "curl exit: $CURL_CODE"
-            echo "HTTP: $HTTP_CODE"
-
-            [ -f /tmp/nvidia-preflight.json ] && cat /tmp/nvidia-preflight.json
-
-            if [ "$CURL_CODE" -eq 0 ] &&
-               { [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "202" ]; }; then
-              echo "NVIDIA model preflight PASSED"
-              exit 0
-            fi
-
-            if [ "$HTTP_CODE" = "400" ] ||
-               [ "$HTTP_CODE" = "401" ] ||
-               [ "$HTTP_CODE" = "403" ] ||
-               [ "$HTTP_CODE" = "404" ] ||
-               [ "$HTTP_CODE" = "422" ]; then
-              echo "Permanent NVIDIA API error: HTTP $HTTP_CODE"
-              exit 1
-            fi
-
-            if [ "$attempt" -lt 3 ]; then
-              sleep 10
-            fi
-          done
-
-          exit 1
-
-      - name: Create OpenCode config
-        run: |
-          set -e
-
-          cat > opencode.json <<EOF
-          {
-            "\$schema":"https://opencode.ai/config.json",
-            "model":"$OPENCODE_MODEL",
-            "provider":{
-              "nvidia":{
-                "npm":"@ai-sdk/openai-compatible",
-                "name":"NVIDIA NIM",
-                "options":{
-                  "baseURL":"{env:NVIDIA_BASE_URL}",
-                  "apiKey":"{env:NVIDIA_API_KEY}"
-                },
-                "models":{
-                  "$NVIDIA_MODEL_ID":{
-                    "name":"$NVIDIA_MODEL_ID",
-                    "limit":{
-                      "context":1000000,
-                      "output":16384
-                    }
-                  }
-                }
-              }
-            }
-          }
-          EOF
-
-      - name: Run Agent
-        env:
-          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
-        run: |
-          set +e
-
-          timeout --foreground 8m \
-            opencode run \
-            --model "$OPENCODE_MODEL" \
-            --print-logs \
-            "$AGENT_PROMPT"
-
-          CODE=$?
-
-          if [ "$CODE" -eq 124 ]; then
-            echo "ERROR: OpenCode timed out."
-            git reset --hard HEAD
-            exit 124
-          fi
-
-          if [ "$CODE" -ne 0 ]; then
-            echo "ERROR: OpenCode failed."
-            git reset --hard HEAD
-            exit "$CODE"
-          fi
-
-      - name: Normalize agent result
-        run: |
-          set -e
-
-          rm -f opencode.json
-          find . -name "*.tsbuildinfo" -type f -delete
-
-          OTHER_FILES="$(
-            git status --porcelain --untracked-files=all |
-            awk '{print substr($0,4)}' |
-            grep -v "^${ASSIGNED_FILE}$" || true
-          )"
-
-          if [ -n "$OTHER_FILES" ]; then
-            echo "ERROR: Agent touched files outside assigned scope:"
-            echo "$OTHER_FILES"
-            git reset --hard HEAD
-            exit 1
-          fi
-
-          if ! git diff --quiet HEAD -- "$ASSIGNED_FILE" ||
-             ! git diff --cached --quiet HEAD -- "$ASSIGNED_FILE"; then
-            git add "$ASSIGNED_FILE"
-            git commit -m "fix: BookingLab dashboard address flow"
-          fi
-
-      - name: Verify scope
-        run: |
-          set -e
-
-          BASE_SHA="$(cat /tmp/base_sha)"
-          CHANGED="$(git diff --name-only "$BASE_SHA" HEAD)"
-
-          if [ -n "$CHANGED" ] && [ "$CHANGED" != "$ASSIGNED_FILE" ]; then
-            echo "ERROR: Commit contains files outside assigned scope."
-            exit 1
-          fi
-
-          if [ -n "$(git status --short --untracked-files=all)" ]; then
-            git status --short --untracked-files=all
-            exit 1
-          fi
+          set -euo pipefail
+          npx tsc --noEmit
 
       - name: Validate Web TypeScript
+        working-directory: web
         run: |
-          set -e
-          cd web
-          npm ci --no-audit --no-fund
-          npx tsc --noEmit --incremental false
+          set -euo pipefail
+          npx tsc --noEmit
 
-      - name: Create artifact
+      - name: Build Web
+        working-directory: web
         run: |
-          set -e
-          BASE_SHA="$(cat /tmp/base_sha)"
+          set -euo pipefail
+          npm run build
 
-          if git diff --quiet "$BASE_SHA" HEAD; then
-            echo "NO_CHANGE" > agent.noop
-          else
-            git format-patch -1 HEAD --stdout > agent.patch
-          fi
-
-      - name: Upload agent artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: agent-dashboard-nemotron
-          path: |
-            agent.patch
-            agent.noop
-          if-no-files-found: ignore
-
-
-  # ============================================================
-  # AGENT 3 — DeepSeek V4 Flash 0731 — Admin
-  # ============================================================
-  agent-admin-deepseek:
-    name: "Agent 3 - DeepSeek V4 Flash - Admin"
-    runs-on: ubuntu-latest
-    timeout-minutes: 11
-
-    env:
-      NVIDIA_MODEL_ID: deepseek-ai/deepseek-v4-flash-0731
-      OPENCODE_MODEL: nvidia/deepseek-ai/deepseek-v4-flash-0731
-      ASSIGNED_FILE: web/app/admin/page.tsx
-
-      AGENT_PROMPT: |
-        You are Agent 3 in a tightly bounded BookingLab task.
-
-        ONLY FILE:
-        web/app/admin/page.tsx
-
-        TASK:
-        Audit ONLY patient address handling in this file.
-
-        Check:
-        - Reservation address display.
-        - Address field binding.
-        - Address inclusion in the existing admin save payload.
-        - Preservation of all existing BookingLab behavior.
-
-        If already correct:
-        STOP immediately and make NO CHANGE.
-
-        If a real defect exists:
-        modify ONLY web/app/admin/page.tsx.
-
-        ABSOLUTE RULES:
-        - Do NOT open api/src/index.ts.
-        - Do NOT open web/lib/api.ts.
-        - Do NOT open any other source file.
-        - Do NOT inspect package files.
-        - Do NOT inspect migrations.
-        - Do NOT inspect configuration.
-        - Do NOT run git diff.
-        - Do NOT run git status.
-        - Do NOT run npm.
-        - Do NOT run tsc.
-        - Do NOT run build.
-        - Do NOT run tests.
-        - Do NOT refactor.
-        - Do NOT touch authentication.
-        - Do NOT touch authorization.
-        - Do NOT touch statuses.
-        - Do NOT touch commissions.
-        - Do NOT touch pricing.
-        - Do NOT touch tests.
-        - Do NOT touch assignment rules.
-        - Do NOT create another file.
-        - Do NOT push.
-        - Do NOT create a PR.
-
-        Statuses must remain:
-        PENDING -> ASSIGNED -> ACCEPTED -> CONFIRMED -> DONE
-
-        There is NO CANCELLED status.
-
-        Before finishing, if changed, commit only:
-        fix: BookingLab admin address flow
-
-    steps:
-
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Record baseline
+      - name: Final scope check
         run: |
-          set -e
-          git status --short
-          git rev-parse HEAD > /tmp/base_sha
+          set -euo pipefail
 
-      - name: Install OpenCode
-        run: |
-          set -e
-          npm install -g "opencode-ai@${OPENCODE_VERSION}"
-          opencode --version
+          bad="$(git status --porcelain | awk '{print $2}' | grep -vE '^(api/src/index\.ts|web/app/admin/page\.tsx|web/app/dashboard/page\.tsx|web/app/page\.tsx)$' || true)"
 
-      - name: NVIDIA model preflight with retry
-        env:
-          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
-        run: |
-          set -u
-
-          for attempt in 1 2 3; do
-            echo "NVIDIA preflight attempt $attempt/3"
-
-            set +e
-
-            HTTP_CODE="$(
-              curl -sS \
-                --connect-timeout 10 \
-                --max-time 30 \
-                -o /tmp/nvidia-preflight.json \
-                -w "%{http_code}" \
-                "$NVIDIA_BASE_URL/chat/completions" \
-                -H "Authorization: Bearer $NVIDIA_API_KEY" \
-                -H "Content-Type: application/json" \
-                -d "{
-                  \"model\":\"$NVIDIA_MODEL_ID\",
-                  \"messages\":[{\"role\":\"user\",\"content\":\"Reply with exactly OK\"}],
-                  \"max_tokens\":4,
-                  \"reasoning_effort\":\"none\",
-                  \"stream\":false
-                }"
-            )"
-
-            CURL_CODE=$?
-
-            echo "curl exit: $CURL_CODE"
-            echo "HTTP: $HTTP_CODE"
-
-            [ -f /tmp/nvidia-preflight.json ] && cat /tmp/nvidia-preflight.json
-
-            if [ "$CURL_CODE" -eq 0 ] &&
-               { [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "202" ]; }; then
-              echo "NVIDIA model preflight PASSED"
-              exit 0
-            fi
-
-            if [ "$HTTP_CODE" = "400" ] ||
-               [ "$HTTP_CODE" = "401" ] ||
-               [ "$HTTP_CODE" = "403" ] ||
-               [ "$HTTP_CODE" = "404" ] ||
-               [ "$HTTP_CODE" = "422" ]; then
-              echo "Permanent NVIDIA API error: HTTP $HTTP_CODE"
-              exit 1
-            fi
-
-            if [ "$attempt" -lt 3 ]; then
-              sleep 10
-            fi
-          done
-
-          exit 1
-
-      - name: Create OpenCode config
-        run: |
-          set -e
-
-          cat > opencode.json <<EOF
-          {
-            "\$schema":"https://opencode.ai/config.json",
-            "model":"$OPENCODE_MODEL",
-            "provider":{
-              "nvidia":{
-                "npm":"@ai-sdk/openai-compatible",
-                "name":"NVIDIA NIM",
-                "options":{
-                  "baseURL":"{env:NVIDIA_BASE_URL}",
-                  "apiKey":"{env:NVIDIA_API_KEY}"
-                },
-                "models":{
-                  "$NVIDIA_MODEL_ID":{
-                    "name":"$NVIDIA_MODEL_ID",
-                    "limit":{
-                      "context":1000000,
-                      "output":16384
-                    }
-                  }
-                }
-              }
-            }
-          }
-          EOF
-
-      - name: Run Agent
-        env:
-          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
-        run: |
-          set +e
-
-          timeout --foreground 8m \
-            opencode run \
-            --model "$OPENCODE_MODEL" \
-            --print-logs \
-            "$AGENT_PROMPT"
-
-          CODE=$?
-
-          if [ "$CODE" -eq 124 ]; then
-            echo "ERROR: OpenCode timed out."
-            git reset --hard HEAD
-            exit 124
-          fi
-
-          if [ "$CODE" -ne 0 ]; then
-            echo "ERROR: OpenCode failed."
-            git reset --hard HEAD
-            exit "$CODE"
-          fi
-
-      - name: Normalize agent result
-        run: |
-          set -e
-
-          rm -f opencode.json
-          find . -name "*.tsbuildinfo" -type f -delete
-
-          OTHER_FILES="$(
-            git status --porcelain --untracked-files=all |
-            awk '{print substr($0,4)}' |
-            grep -v "^${ASSIGNED_FILE}$" || true
-          )"
-
-          if [ -n "$OTHER_FILES" ]; then
-            echo "ERROR: Agent touched files outside assigned scope:"
-            echo "$OTHER_FILES"
-            git reset --hard HEAD
+          if [ -n "$bad" ]; then
+            echo "::error::Integration produced unexpected files:"
+            echo "$bad"
             exit 1
           fi
 
-          if ! git diff --quiet HEAD -- "$ASSIGNED_FILE" ||
-             ! git diff --cached --quiet HEAD -- "$ASSIGNED_FILE"; then
-            git add "$ASSIGNED_FILE"
-            git commit -m "fix: BookingLab admin address flow"
-          fi
-
-      - name: Verify scope
+      - name: Commit integrated changes
         run: |
-          set -e
+          set -euo pipefail
 
-          BASE_SHA="$(cat /tmp/base_sha)"
-          CHANGED="$(git diff --name-only "$BASE_SHA" HEAD)"
+          git config user.name "BookingLab Cloud Agent"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          if [ -n "$CHANGED" ] && [ "$CHANGED" != "$ASSIGNED_FILE" ]; then
-            echo "ERROR: Commit contains files outside assigned scope."
+          git add \
+            api/src/index.ts \
+            web/app/admin/page.tsx \
+            web/app/dashboard/page.tsx \
+            web/app/page.tsx
+
+          if git diff --cached --quiet; then
+            echo "::error::No integrated changes to commit"
             exit 1
           fi
 
-          if [ -n "$(git status --short --untracked-files=all)" ]; then
-            git status --short --untracked-files=all
-            exit 1
-          fi
+          git commit -m "Implement BookingLab reservation edit consistency"
 
-      - name: Validate Web TypeScript
+      - name: Push integrated changes
         run: |
-          set -e
-          cd web
-          npm ci --no-audit --no-fund
-          npx tsc --noEmit --incremental false
-
-      - name: Create artifact
-        run: |
-          set -e
-          BASE_SHA="$(cat /tmp/base_sha)"
-
-          if git diff --quiet "$BASE_SHA" HEAD; then
-            echo "NO_CHANGE" > agent.noop
-          else
-            git format-patch -1 HEAD --stdout > agent.patch
-          fi
-
-      - name: Upload agent artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: agent-admin-deepseek
-          path: |
-            agent.patch
-            agent.noop
-          if-no-files-found: ignore
-
-
-  # ============================================================
-  # AGENT 4 — GLM 5.3 Flash — Public
-  # ============================================================
-  agent-public-glm:
-    name: "Agent 4 - GLM 5.3 Flash - Public"
-    runs-on: ubuntu-latest
-    timeout-minutes: 12
-
-    env:
-      NVIDIA_MODEL_ID: z-ai/glm-5.3-flash
-      OPENCODE_MODEL: nvidia/z-ai/glm-5.3-flash
-      ASSIGNED_FILE: web/app/page.tsx
-
-      AGENT_PROMPT: |
-        You are Agent 4 in a controlled BookingLab engineering task.
-
-        ONLY ASSIGNED FILE:
-        web/app/page.tsx
-
-        TASK:
-        Audit the public patient booking address flow and fix only real defects.
-
-        Requirements:
-        - Public booking form collects patient address.
-        - Address is included in booking submission.
-        - Existing cart/test behavior remains unchanged.
-        - Do not change test pricing.
-        - Do not change original_total.
-        - Do not change statuses.
-        - Do not change authentication.
-        - Do not change staff/admin permissions.
-        - Do not change commissions.
-        - Do not change assignment rules.
-
-        Valid statuses:
-        PENDING -> ASSIGNED -> ACCEPTED -> CONFIRMED -> DONE
-
-        There is NO CANCELLED status.
-
-        HARD SCOPE:
-        - Only modify web/app/page.tsx.
-        - Do not inspect API source.
-        - Do not inspect web/lib/api.ts.
-        - Do not modify package files.
-        - Do not modify migrations.
-        - Do not modify configuration.
-        - Do not refactor unrelated code.
-        - Do not create tests or documentation.
-        - Do not push.
-        - Do not create a PR.
-
-        If the implementation is already correct:
-        make NO source change and finish immediately.
-
-        If a real defect exists:
-        fix only that defect.
-
-        Before finishing, commit only the assigned file with:
-        fix: BookingLab public address flow
-
-    steps:
-
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Record baseline
-        run: |
-          set -e
-          git status --short
-          git rev-parse HEAD > /tmp/base_sha
-
-      - name: Install OpenCode
-        run: |
-          set -e
-          npm install -g "opencode-ai@${OPENCODE_VERSION}"
-          opencode --version
-
-      - name: NVIDIA model preflight with retry
-        env:
-          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
-        run: |
-          set -u
-
-          for attempt in 1 2 3; do
-            echo "NVIDIA preflight attempt $attempt/3"
-
-            set +e
-
-            HTTP_CODE="$(
-              curl -sS \
-                --connect-timeout 10 \
-                --max-time 30 \
-                -o /tmp/nvidia-preflight.json \
-                -w "%{http_code}" \
-                "$NVIDIA_BASE_URL/chat/completions" \
-                -H "Authorization: Bearer $NVIDIA_API_KEY" \
-                -H "Content-Type: application/json" \
-                -d "{
-                  \"model\":\"$NVIDIA_MODEL_ID\",
-                  \"messages\":[{\"role\":\"user\",\"content\":\"Reply with exactly OK\"}],
-                  \"max_tokens\":4,
-                  \"stream\":false
-                }"
-            )"
-
-            CURL_CODE=$?
-
-            echo "curl exit: $CURL_CODE"
-            echo "HTTP: $HTTP_CODE"
-
-            [ -f /tmp/nvidia-preflight.json ] && cat /tmp/nvidia-preflight.json
-
-            if [ "$CURL_CODE" -eq 0 ] &&
-               { [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "202" ]; }; then
-              echo "NVIDIA model preflight PASSED"
-              exit 0
-            fi
-
-            if [ "$HTTP_CODE" = "400" ] ||
-               [ "$HTTP_CODE" = "401" ] ||
-               [ "$HTTP_CODE" = "403" ] ||
-               [ "$HTTP_CODE" = "404" ] ||
-               [ "$HTTP_CODE" = "422" ]; then
-              echo "Permanent NVIDIA API error: HTTP $HTTP_CODE"
-              exit 1
-            fi
-
-            if [ "$attempt" -lt 3 ]; then
-              sleep 10
-            fi
-          done
-
-          exit 1
-
-      - name: Create OpenCode config
-        run: |
-          set -e
-
-          cat > opencode.json <<EOF
-          {
-            "\$schema":"https://opencode.ai/config.json",
-            "model":"$OPENCODE_MODEL",
-            "provider":{
-              "nvidia":{
-                "npm":"@ai-sdk/openai-compatible",
-                "name":"NVIDIA NIM",
-                "options":{
-                  "baseURL":"{env:NVIDIA_BASE_URL}",
-                  "apiKey":"{env:NVIDIA_API_KEY}"
-                },
-                "models":{
-                  "$NVIDIA_MODEL_ID":{
-                    "name":"$NVIDIA_MODEL_ID",
-                    "limit":{
-                      "context":1000000,
-                      "output":16384
-                    }
-                  }
-                }
-              }
-            }
-          }
-          EOF
-
-      - name: Run Agent
-        env:
-          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
-        run: |
-          set +e
-
-          timeout --foreground 8m \
-            opencode run \
-            --model "$OPENCODE_MODEL" \
-            --print-logs \
-            "$AGENT_PROMPT"
-
-          CODE=$?
-
-          if [ "$CODE" -eq 124 ]; then
-            echo "ERROR: OpenCode timed out."
-            git reset --hard HEAD
-            exit 124
-          fi
-
-          if [ "$CODE" -ne 0 ]; then
-            echo "ERROR: OpenCode failed."
-            git reset --hard HEAD
-            exit "$CODE"
-          fi
-
-      - name: Normalize agent result
-        run: |
-          set -e
-
-          rm -f opencode.json
-          find . -name "*.tsbuildinfo" -type f -delete
-
-          OTHER_FILES="$(
-            git status --porcelain --untracked-files=all |
-            awk '{print substr($0,4)}' |
-            grep -v "^${ASSIGNED_FILE}$" || true
-          )"
-
-          if [ -n "$OTHER_FILES" ]; then
-            echo "ERROR: Agent touched files outside assigned scope:"
-            echo "$OTHER_FILES"
-            git reset --hard HEAD
-            exit 1
-          fi
-
-          if ! git diff --quiet HEAD -- "$ASSIGNED_FILE" ||
-             ! git diff --cached --quiet HEAD -- "$ASSIGNED_FILE"; then
-            git add "$ASSIGNED_FILE"
-            git commit -m "fix: BookingLab public address flow"
-          fi
-
-      - name: Verify scope
-        run: |
-          set -e
-
-          BASE_SHA="$(cat /tmp/base_sha)"
-          CHANGED="$(git diff --name-only "$BASE_SHA" HEAD)"
-
-          if [ -n "$CHANGED" ] && [ "$CHANGED" != "$ASSIGNED_FILE" ]; then
-            echo "ERROR: Commit contains files outside assigned scope."
-            exit 1
-          fi
-
-          if [ -n "$(git status --short --untracked-files=all)" ]; then
-            git status --short --untracked-files=all
-            exit 1
-          fi
-
-      - name: Validate Web TypeScript
-        run: |
-          set -e
-          cd web
-          npm ci --no-audit --no-fund
-          npx tsc --noEmit --incremental false
-
-      - name: Create artifact
-        run: |
-          set -e
-          BASE_SHA="$(cat /tmp/base_sha)"
-
-          if git diff --quiet "$BASE_SHA" HEAD; then
-            echo "NO_CHANGE" > agent.noop
-          else
-            git format-patch -1 HEAD --stdout > agent.patch
-          fi
-
-      - name: Upload agent artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: agent-public-glm
-          path: |
-            agent.patch
-            agent.noop
-          if-no-files-found: ignore
+          set -euo pipefail
+          git push origin HEAD:main
