@@ -24,7 +24,7 @@ jobs:
 
     env:
       NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
-      NVIDIA_BASE_URL: ${{ env.NVIDIA_BASE_URL }}
+      NVIDIA_BASE_URL: https://integrate.api.nvidia.com/v1
       AGENT_PROMPT: |
         You are Agent 1 for the BookingLab production repository.
 
@@ -144,7 +144,7 @@ jobs:
 
     env:
       NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
-      NVIDIA_BASE_URL: ${{ env.NVIDIA_BASE_URL }}
+      NVIDIA_BASE_URL: https://integrate.api.nvidia.com/v1
       AGENT_PROMPT: |
         You are Agent 2 for the BookingLab production repository.
 
@@ -263,7 +263,7 @@ jobs:
 
     env:
       NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
-      NVIDIA_BASE_URL: ${{ env.NVIDIA_BASE_URL }}
+      NVIDIA_BASE_URL: https://integrate.api.nvidia.com/v1
       AGENT_PROMPT: |
         You are Agent 3 for the BookingLab production repository.
 
@@ -385,7 +385,7 @@ jobs:
 
     env:
       NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
-      NVIDIA_BASE_URL: ${{ env.NVIDIA_BASE_URL }}
+      NVIDIA_BASE_URL: https://integrate.api.nvidia.com/v1
       AGENT_PROMPT: |
         You are Agent 4 for the BookingLab production repository.
 
