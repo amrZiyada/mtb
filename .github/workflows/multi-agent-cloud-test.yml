@@ -1,4 +1,4 @@
-name: GLM Direct Test
+name: OpenCode GLM Test
 
 on:
   workflow_dispatch:
@@ -7,51 +7,91 @@ permissions:
   contents: read
 
 jobs:
-  glm:
-    name: GLM-5.3
+  opencode-glm:
+    name: OpenCode + GLM-5.3
     runs-on: ubuntu-latest
 
+    timeout-minutes: 10
+
     steps:
-      - name: Test GLM-5.3
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+
+      - name: Install OpenCode 1.18.31
+        run: |
+          npm install -g opencode-ai@1.18.31
+          opencode --version
+
+      - name: Create OpenCode configuration
+        run: |
+          cat > opencode.json <<'EOF'
+          {
+            "$schema": "https://opencode.ai/config.json",
+            "model": "nvidia/z-ai/glm-5.3",
+            "provider": {
+              "nvidia": {
+                "npm": "@ai-sdk/openai-compatible",
+                "name": "NVIDIA NIM",
+                "options": {
+                  "baseURL": "{env:NVIDIA_BASE_URL}",
+                  "apiKey": "{env:NVIDIA_API_KEY}"
+                },
+                "models": {
+                  "z-ai/glm-5.3": {
+                    "name": "GLM-5.3",
+                    "limit": {
+                      "context": 1048576,
+                      "output": 32768
+                    }
+                  }
+                }
+              }
+            }
+          }
+          EOF
+
+          echo "OpenCode configuration:"
+          cat opencode.json
+
+      - name: Run OpenCode with GLM read-only test
         env:
           NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+          NVIDIA_BASE_URL: https://integrate.api.nvidia.com/v1
         run: |
           echo "========================================"
-          echo "Testing NVIDIA GLM-5.3"
+          echo "OpenCode + NVIDIA GLM-5.3"
           echo "========================================"
 
-          HTTP_STATUS=$(curl -sS \
-            -o glm-response.json \
-            -w "%{http_code}" \
-            --max-time 180 \
-            -X POST \
-            "https://integrate.api.nvidia.com/v1/chat/completions" \
-            -H "Authorization: Bearer $NVIDIA_API_KEY" \
-            -H "Content-Type: application/json" \
-            -d '{
-              "model": "z-ai/glm-5.3",
-              "messages": [
-                {
-                  "role": "user",
-                  "content": "Reply with exactly: GLM TEST OK"
-                }
-              ],
-              "max_tokens": 20,
-              "stream": false
-            }')
+          opencode run \
+            --model nvidia/z-ai/glm-5.3 \
+            --print-logs \
+            "You are performing a READ-ONLY test of the BookingLab repository.
 
-          echo
-          echo "HTTP_STATUS=$HTTP_STATUS"
-          echo
-          echo "NVIDIA RESPONSE:"
-          cat glm-response.json
-          echo
+            DO NOT modify any files.
+            DO NOT create, delete, or rename files.
+            DO NOT commit.
+            DO NOT push.
+            DO NOT create branches.
+            DO NOT create pull requests.
+            DO NOT deploy anything.
 
-          if [ "$HTTP_STATUS" -lt 200 ] || [ "$HTTP_STATUS" -ge 300 ]; then
-            echo
-            echo "GLM MODEL TEST FAILED"
-            exit 1
-          fi
+            Inspect the repository briefly.
 
-          echo
-          echo "GLM MODEL TEST PASSED"
+            Report:
+            1. The frontend framework.
+            2. The backend framework.
+            3. The database technology.
+            4. The production frontend URL if it can be determined from the repository.
+            5. The production API URL if it can be determined from the repository.
+
+            Keep the response concise.
+
+            Finish with exactly:
+            GLM OPENCODE CLOUD TEST COMPLETE"
