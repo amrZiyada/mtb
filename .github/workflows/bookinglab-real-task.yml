@@ -97,7 +97,7 @@ jobs:
                 -o /tmp/nvidia-preflight.json \
                 -w "%{http_code}" \
                 "$NVIDIA_BASE_URL/chat/completions" \
-                -H "Authorization: $NVIDIA_API_KEY" \
+                -H "Authorization: ******" \
                 -H "Content-Type: application/json" \
                 -d "{
                   \"model\":\"$NVIDIA_MODEL_ID\",
