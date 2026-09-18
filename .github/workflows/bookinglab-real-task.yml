@@ -385,6 +385,14 @@ jobs:
           git diff --stat
           git status --short
 
+      - name: Install API dependencies
+        working-directory: api
+        run: npm ci
+
+      - name: Install Web dependencies
+        working-directory: web
+        run: npm ci
+
       - name: Validate API TypeScript
         working-directory: api
         run: npx tsc --noEmit --incremental false
