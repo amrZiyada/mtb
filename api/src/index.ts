@@ -5,6 +5,8 @@ import { createHash, createHmac } from 'node:crypto'
 type Env = { Bindings: { DB: D1Database; ADMIN_PASSWORD_HASH: string; SESSION_SECRET: string; WEB_ORIGIN: string } }
 const app = new Hono<Env>()
 
+// Inspected by BookingLab cloud coding-agent isolation test
+
 type User = { id:number; username:string; display_name:string; mobile:string; user_type:'DOCTOR'|'REP'|'SALESMAN'; active:number; permissions_json:string }
 type LoginUser = User & { password_hash:string }
 type Auth = { kind:'ADMIN'|'USER'; user?:User }

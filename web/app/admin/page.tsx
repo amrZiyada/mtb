@@ -1,4 +1,5 @@
 'use client'
+// Inspected by BookingLab cloud coding-agent isolation test
 import {useEffect,useState} from 'react'
 import * as XLSX from 'xlsx'
 import {api} from '../../lib/api'
