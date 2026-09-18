@@ -1,4 +1,4 @@
-name: BookingLab Real Task - 4 Cloud Agents v3.3
+name: BookingLab Real Cloud Agents v3.4
 
 on:
   workflow_dispatch:
@@ -6,670 +6,857 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  group: bookinglab-real-task
-  cancel-in-progress: true
+env:
+  NVIDIA_BASE_URL: https://integrate.api.nvidia.com/v1
+  OPENCODE_VERSION: 1.18.31
 
 jobs:
 
-  agent-api:
-    name: Agent 1 - Nemotron API
+  # ============================================================
+  # AGENT 1 — Nemotron 3 Ultra — API
+  # ============================================================
+  agent-api-nemotron:
+    name: "Agent 1 - Nemotron Ultra - API"
     runs-on: ubuntu-latest
-    timeout-minutes: 18
+    timeout-minutes: 11
 
     env:
-      NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
-      NVIDIA_BASE_URL: https://integrate.api.nvidia.com/v1
+      NVIDIA_MODEL_ID: nvidia/nemotron-3-ultra-550b-a55b
+      OPENCODE_MODEL: nvidia/nvidia/nemotron-3-ultra-550b-a55b
+      ASSIGNED_FILE: api/src/index.ts
 
       AGENT_PROMPT: |
-        You are Agent 1 for the BookingLab project.
+        You are Agent 1 in a controlled BookingLab engineering task.
 
-        Repository:
-        amrZiyada/mtb
-
-        ASSIGNED FILE:
+        YOUR ONLY ASSIGNED FILE:
         api/src/index.ts
 
-        TASK:
-        Audit the existing BookingLab API patient-address flow.
+        YOUR TASK:
+        Audit the patient address flow in the API implementation and fix only real defects
+        that affect the BookingLab address requirements.
 
-        Verify that:
-        1. Public booking accepts patient address.
-        2. Address is stored.
-        3. Address is returned.
-        4. Authorized reservation editing preserves address.
-        5. Editing does not change original_total.
-
-        IMPORTANT RULES:
-        - Statuses are EXACTLY:
+        Requirements:
+        - Public booking address must be accepted and persisted.
+        - Existing booking address must remain intact when a booking is edited.
+        - Staff/admin booking edits must preserve address unless the submitted edit explicitly changes it.
+        - Do not recalculate original_total during ordinary booking edits.
+        - Do not change booking statuses.
+        - Valid statuses are exactly:
           PENDING -> ASSIGNED -> ACCEPTED -> CONFIRMED -> DONE
         - There is NO CANCELLED status.
-        - Do not change authentication.
-        - Do not change authorization.
-        - Do not change roles.
-        - Do not change permissions.
-        - Do not change commissions.
-        - Do not change pricing.
-        - Do not change assignment.
-        - Do not change original_total semantics.
-        - Do not modify unrelated files.
-
-        FIRST inspect the existing code.
-
-        If the current implementation is already correct:
-        make NO changes and finish immediately.
-
-        If a real defect exists:
-        make only the smallest necessary change in api/src/index.ts.
-
-        Do NOT run tests, builds, or TypeScript validation yourself.
-        Do NOT attempt to repair unrelated TypeScript errors.
-        Do NOT modify any file other than api/src/index.ts.
-
-        Stop immediately after the required source change is complete.
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v7
-        with:
-          node-version: 22
-
-      - name: Install API dependencies
-        working-directory: api
-        run: npm ci
-
-      - name: Install OpenCode
-        run: npm install -g opencode-ai@1.18.31
-
-      - name: Record baseline
-        run: |
-          set -euo pipefail
-          BASE_SHA="$(git rev-parse HEAD)"
-          echo "BASE_SHA=$BASE_SHA" >> "$GITHUB_ENV"
-          echo "Baseline: $BASE_SHA"
-
-      - name: Run Nemotron
-        timeout-minutes: 9
-        run: |
-          set -euo pipefail
-
-          timeout --foreground 8m opencode run \
-            --model "nvidia/nvidia/nemotron-3-ultra-550b-a55b" \
-            --print-logs \
-            "$AGENT_PROMPT"
-
-      - name: Validate API TypeScript
-        working-directory: api
-        timeout-minutes: 3
-        run: |
-          set -euo pipefail
-          timeout 150s npm exec --no -- tsc --noEmit --incremental false
-
-      - name: Clean generated files
-        run: |
-          set -euo pipefail
-          find . -name '*.tsbuildinfo' -type f -delete 2>/dev/null || true
-
-      - name: Verify scope and create artifact
-        timeout-minutes: 2
-        run: |
-          set -euo pipefail
-
-          ASSIGNED="api/src/index.ts"
-
-          TRACKED_CHANGED="$(git diff --name-only "$BASE_SHA")"
-          UNTRACKED_CHANGED="$(git ls-files --others --exclude-standard)"
-
-          echo "Tracked changes:"
-          printf '%s\n' "$TRACKED_CHANGED"
-
-          echo "Untracked files:"
-          printf '%s\n' "$UNTRACKED_CHANGED"
-
-          BAD_TRACKED="$(
-            printf '%s\n' "$TRACKED_CHANGED" |
-            sed '/^$/d' |
-            grep -vxF "$ASSIGNED" || true
-          )"
-
-          if [ -n "$BAD_TRACKED" ]; then
-            echo "ERROR: Changes outside assigned file:"
-            printf '%s\n' "$BAD_TRACKED"
-            exit 1
-          fi
-
-          if [ -n "$UNTRACKED_CHANGED" ]; then
-            echo "ERROR: Unexpected untracked files:"
-            printf '%s\n' "$UNTRACKED_CHANGED"
-            exit 1
-          fi
-
-          if git diff --quiet "$BASE_SHA" -- "$ASSIGNED"; then
-            echo "NO_CHANGE" > agent.noop
-            echo "Agent 1: NO CHANGE"
-          else
-            git diff "$BASE_SHA" -- "$ASSIGNED" > agent.patch
-            test -s agent.patch
-            echo "Agent 1: PATCH CREATED"
-          fi
-
-      - name: Upload API artifact
-        uses: actions/upload-artifact@v6
-        with:
-          name: bookinglab-agent-1-api
-          path: |
-            agent.patch
-            agent.noop
-          if-no-files-found: ignore
-
-
-  agent-dashboard:
-    name: Agent 2 - GLM Dashboard
-    runs-on: ubuntu-latest
-    timeout-minutes: 18
-
-    env:
-      NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
-      NVIDIA_BASE_URL: https://integrate.api.nvidia.com/v1
-
-      AGENT_PROMPT: |
-        You are Agent 2 for the BookingLab project.
-
-        Repository:
-        amrZiyada/mtb
-
-        ASSIGNED FILE:
-        web/app/dashboard/page.tsx
-
-        TASK:
-        Audit the staff dashboard reservation editing flow for patient address.
-
-        Verify that:
-        1. Existing address is loaded into the edit form.
-        2. Address is displayed.
-        3. Address remains editable under existing permissions.
-        4. Current address is sent when saving.
-        5. Existing workflow and authorization remain unchanged.
-
-        IMPORTANT RULES:
-        - Statuses are EXACTLY:
-          PENDING -> ASSIGNED -> ACCEPTED -> CONFIRMED -> DONE
-        - There is NO CANCELLED status.
-        - Do not change authentication.
-        - Do not change roles.
-        - Do not change permissions.
-        - Do not change commissions.
-        - Do not change pricing.
-        - Do not change original_total.
-        - Do not change assignment behavior.
-        - Do not modify unrelated files.
-        - Assigned DOCTOR/REP confirmed-edit behavior must remain intact.
-
-        FIRST inspect the existing implementation.
-
-        If already correct:
-        make NO changes and finish immediately.
-
-        If a real defect exists:
-        make the smallest necessary change ONLY in:
-        web/app/dashboard/page.tsx
-
-        Do NOT run tests, builds, or TypeScript validation yourself.
-        Do NOT repair unrelated TypeScript errors.
-        Do NOT modify web/lib/api.ts.
-        Do NOT modify tsconfig files.
-        Do NOT modify package files.
-        Do NOT modify any other file.
-
-        Stop immediately after the required source change is complete.
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v7
-        with:
-          node-version: 22
-
-      - name: Install Web dependencies
-        working-directory: web
-        run: npm ci
-
-      - name: Install OpenCode
-        run: npm install -g opencode-ai@1.18.31
-
-      - name: Record baseline
-        run: |
-          set -euo pipefail
-          BASE_SHA="$(git rev-parse HEAD)"
-          echo "BASE_SHA=$BASE_SHA" >> "$GITHUB_ENV"
-          echo "Baseline: $BASE_SHA"
-
-      - name: Run GLM
-        timeout-minutes: 9
-        run: |
-          set -euo pipefail
-
-          timeout --foreground 8m opencode run \
-            --model "nvidia/z-ai/glm-5.3" \
-            --print-logs \
-            "$AGENT_PROMPT"
-
-      - name: Validate Web TypeScript
-        working-directory: web
-        timeout-minutes: 3
-        run: |
-          set -euo pipefail
-          rm -f tsconfig.tsbuildinfo
-          timeout 150s npm exec --no -- tsc --noEmit --incremental false
-
-      - name: Clean generated files
-        run: |
-          set -euo pipefail
-          find . -name '*.tsbuildinfo' -type f -delete 2>/dev/null || true
-
-      - name: Verify scope and create artifact
-        timeout-minutes: 2
-        run: |
-          set -euo pipefail
-
-          ASSIGNED="web/app/dashboard/page.tsx"
-
-          TRACKED_CHANGED="$(git diff --name-only "$BASE_SHA")"
-          UNTRACKED_CHANGED="$(git ls-files --others --exclude-standard)"
-
-          echo "Tracked changes:"
-          printf '%s\n' "$TRACKED_CHANGED"
-
-          echo "Untracked files:"
-          printf '%s\n' "$UNTRACKED_CHANGED"
-
-          BAD_TRACKED="$(
-            printf '%s\n' "$TRACKED_CHANGED" |
-            sed '/^$/d' |
-            grep -vxF "$ASSIGNED" || true
-          )"
-
-          if [ -n "$BAD_TRACKED" ]; then
-            echo "ERROR: Changes outside assigned file:"
-            printf '%s\n' "$BAD_TRACKED"
-            exit 1
-          fi
-
-          if [ -n "$UNTRACKED_CHANGED" ]; then
-            echo "ERROR: Unexpected untracked files:"
-            printf '%s\n' "$UNTRACKED_CHANGED"
-            exit 1
-          fi
-
-          if git diff --quiet "$BASE_SHA" -- "$ASSIGNED"; then
-            echo "NO_CHANGE" > agent.noop
-            echo "Agent 2: NO CHANGE"
-          else
-            git diff "$BASE_SHA" -- "$ASSIGNED" > agent.patch
-            test -s agent.patch
-            echo "Agent 2: PATCH CREATED"
-          fi
-
-      - name: Upload Dashboard artifact
-        uses: actions/upload-artifact@v6
-        with:
-          name: bookinglab-agent-2-dashboard
-          path: |
-            agent.patch
-            agent.noop
-          if-no-files-found: ignore
-
-
-  agent-admin:
-    name: Agent 3 - GLM Admin
-    runs-on: ubuntu-latest
-    timeout-minutes: 13
-
-    env:
-      NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
-      NVIDIA_BASE_URL: https://integrate.api.nvidia.com/v1
-
-      AGENT_PROMPT: |
-        You are Agent 3 for the BookingLab project.
-
-        Repository:
-        amrZiyada/mtb
-
-        ASSIGNED FILE:
-        web/app/admin/page.tsx
-
-        THIS IS A NARROW SOURCE-CODE TASK.
-
-        TASK:
-        Inspect ONLY the admin reservation details/editing flow related to patient address.
-
-        Verify whether the admin page:
-        1. Displays the stored patient address.
-        2. Preserves the address when an admin edits a reservation.
-        3. Sends the current address when the existing admin edit payload contains editable patient fields.
+        - Do not change roles, permissions, assignment rules, commissions, pricing rules,
+          authentication, sessions, or unrelated business logic.
+
+        HARD SCOPE:
+        - You may inspect and modify ONLY api/src/index.ts.
+        - Do not modify any other source file.
+        - Do not modify package files.
+        - Do not modify migrations.
+        - Do not modify configuration files.
+        - Do not refactor unrelated code.
+        - Do not create tests or documentation files.
+        - Do not run repair loops.
+        - If the implementation is already correct, make NO source change.
 
         IMPORTANT:
-        The existing BookingLab implementation may already be correct.
+        Work directly and finish quickly.
+        Do not spend time exploring unrelated parts of the repository.
 
-        If it is correct:
-        STOP.
-        Make NO changes.
-        Do NOT run tests.
-        Do NOT run TypeScript.
-        Do NOT run a build.
-        Do NOT investigate unrelated errors.
-
-        If a real address defect exists:
-        make ONLY the smallest necessary source change in:
-        web/app/admin/page.tsx
-
-        HARD RULES:
-        - Modify ONLY web/app/admin/page.tsx.
-        - Do NOT modify web/lib/api.ts.
-        - Do NOT modify tsconfig files.
-        - Do NOT modify package.json.
-        - Do NOT modify package-lock files.
-        - Do NOT modify any other source file.
-        - Do NOT create configuration files.
-        - Do NOT create tests.
-        - Do NOT run formatting over the project.
-        - Do NOT run npm commands.
-        - Do NOT run tsc.
-        - Do NOT run npm test.
-        - Do NOT run npm build.
-        - Do NOT repair unrelated TypeScript errors.
-        - Do NOT refactor the page.
-        - Do NOT rewrite JSX structure.
-        - Do NOT introduce new components.
-        - Do NOT make speculative improvements.
-
-        BookingLab rules that MUST NOT change:
-        - Statuses are EXACTLY:
-          PENDING -> ASSIGNED -> ACCEPTED -> CONFIRMED -> DONE
-        - There is NO CANCELLED status.
-        - Do not change authentication.
-        - Do not change authorization.
-        - Do not change roles.
-        - Do not change permissions.
-        - Do not change assignment.
-        - Do not change commissions.
-        - Do not change pricing.
-        - Do not change original_total.
-
-        Work directly and minimally.
-        Once the inspection/required edit is complete, STOP immediately.
+        BEFORE FINISHING:
+        - If a real defect exists, fix only that defect in api/src/index.ts.
+        - If no defect exists, leave the source unchanged.
+        - If you changed the file, commit ONLY api/src/index.ts with:
+          fix: BookingLab API address flow
+        - Do not push.
+        - Do not create a PR.
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v7
-        with:
-          node-version: 22
-
-      - name: Install Web dependencies
-        working-directory: web
-        run: npm ci
-
-      - name: Install OpenCode
-        run: npm install -g opencode-ai@1.18.31
+        uses: actions/checkout@v4
 
       - name: Record baseline
         run: |
-          set -euo pipefail
-          BASE_SHA="$(git rev-parse HEAD)"
-          echo "BASE_SHA=$BASE_SHA" >> "$GITHUB_ENV"
-          echo "Baseline: $BASE_SHA"
+          git status --short
+          git rev-parse HEAD > /tmp/base_sha
 
-      - name: Run GLM Admin
-        timeout-minutes: 9
+      - name: Install OpenCode
         run: |
-          set -euo pipefail
+          npm install -g "opencode-ai@${OPENCODE_VERSION}"
+          opencode --version
 
-          timeout --foreground 8m opencode run \
-            --model "nvidia/z-ai/glm-5.3" \
+      - name: NVIDIA model preflight
+        env:
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+        run: |
+          set -e
+          HTTP_CODE="$(
+            curl -sS \
+              --max-time 45 \
+              -o /tmp/nvidia-preflight.json \
+              -w "%{http_code}" \
+              "$NVIDIA_BASE_URL/chat/completions" \
+              -H "Authorization: Bearer $NVIDIA_API_KEY" \
+              -H "Content-Type: application/json" \
+              -d "{
+                \"model\":\"$NVIDIA_MODEL_ID\",
+                \"messages\":[{\"role\":\"user\",\"content\":\"Reply with exactly OK\"}],
+                \"max_tokens\":4,
+                \"stream\":false
+              }"
+          )"
+
+          echo "NVIDIA preflight HTTP: $HTTP_CODE"
+          cat /tmp/nvidia-preflight.json
+
+          test "$HTTP_CODE" = "200"
+
+      - name: Create OpenCode config
+        env:
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+        run: |
+          cat > opencode.json <<EOF
+          {
+            "\$schema":"https://opencode.ai/config.json",
+            "model":"$OPENCODE_MODEL",
+            "provider":{
+              "nvidia":{
+                "npm":"@ai-sdk/openai-compatible",
+                "name":"NVIDIA NIM",
+                "options":{
+                  "baseURL":"{env:NVIDIA_BASE_URL}",
+                  "apiKey":"{env:NVIDIA_API_KEY}"
+                },
+                "models":{
+                  "$NVIDIA_MODEL_ID":{
+                    "name":"$NVIDIA_MODEL_ID",
+                    "limit":{
+                      "context":1000000,
+                      "output":16384
+                    }
+                  }
+                }
+              }
+            }
+          }
+          EOF
+
+          cat opencode.json
+
+      - name: Run Agent
+        env:
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+        run: |
+          set +e
+          timeout --foreground 8m \
+            opencode run \
+            --model "$OPENCODE_MODEL" \
             --print-logs \
             "$AGENT_PROMPT"
 
-      - name: Validate Admin TSX
-        working-directory: web
-        timeout-minutes: 3
+          CODE=$?
+          echo "OpenCode exit code: $CODE"
+
+          if [ "$CODE" -ne 0 ] && [ "$CODE" -ne 124 ]; then
+            exit "$CODE"
+          fi
+
+          exit 0
+
+      - name: Clean generated TypeScript cache
         run: |
-          set -euo pipefail
+          find . -name "*.tsbuildinfo" -type f -delete
 
-          rm -f tsconfig.tsbuildinfo
-
-          timeout 150s npm exec --no -- tsc \
-            --noEmit \
-            --incremental false
-
-      - name: Clean generated files
+      - name: Verify scope
         run: |
-          set -euo pipefail
-          find . -name '*.tsbuildinfo' -type f -delete 2>/dev/null || true
+          set -e
 
-      - name: Verify Admin scope and create artifact
-        timeout-minutes: 2
-        run: |
-          set -euo pipefail
+          BASE_SHA="$(cat /tmp/base_sha)"
 
-          ASSIGNED="web/app/admin/page.tsx"
+          echo "Committed changes:"
+          git diff --name-only "$BASE_SHA" HEAD
 
-          TRACKED_CHANGED="$(git diff --name-only "$BASE_SHA")"
-          UNTRACKED_CHANGED="$(git ls-files --others --exclude-standard)"
+          CHANGED="$(git diff --name-only "$BASE_SHA" HEAD)"
 
-          echo "Tracked changes:"
-          printf '%s\n' "$TRACKED_CHANGED"
+          if [ -n "$CHANGED" ]; then
+            if [ "$CHANGED" != "$ASSIGNED_FILE" ]; then
+              echo "ERROR: Agent modified files outside assigned scope."
+              echo "$CHANGED"
+              exit 1
+            fi
+          fi
 
-          echo "Untracked files:"
-          printf '%s\n' "$UNTRACKED_CHANGED"
-
-          BAD_TRACKED="$(
-            printf '%s\n' "$TRACKED_CHANGED" |
-            sed '/^$/d' |
-            grep -vxF "$ASSIGNED" || true
-          )"
-
-          if [ -n "$BAD_TRACKED" ]; then
-            echo "ERROR: Agent changed files outside assigned scope:"
-            printf '%s\n' "$BAD_TRACKED"
+          if [ -n "$(git status --short --untracked-files=all)" ]; then
+            echo "ERROR: Unexpected untracked/modified files:"
+            git status --short --untracked-files=all
             exit 1
           fi
 
-          if [ -n "$UNTRACKED_CHANGED" ]; then
-            echo "ERROR: Agent created unexpected untracked files:"
-            printf '%s\n' "$UNTRACKED_CHANGED"
-            exit 1
-          fi
+      - name: Validate API TypeScript
+        run: |
+          set -e
+          cd api
+          npm ci --no-audit --no-fund
+          npx tsc --noEmit --incremental false
 
-          if git diff --quiet "$BASE_SHA" -- "$ASSIGNED"; then
+      - name: Create artifact
+        run: |
+          set -e
+
+          BASE_SHA="$(cat /tmp/base_sha)"
+
+          if git diff --quiet "$BASE_SHA" HEAD; then
             echo "NO_CHANGE" > agent.noop
-            echo "Agent 3: NO CHANGE"
           else
-            git diff "$BASE_SHA" -- "$ASSIGNED" > agent.patch
-            test -s agent.patch
-            echo "Agent 3: PATCH CREATED"
+            git format-patch -1 HEAD --stdout > agent.patch
           fi
 
-      - name: Upload Admin artifact
-        uses: actions/upload-artifact@v6
+      - name: Upload agent artifact
+        uses: actions/upload-artifact@v4
         with:
-          name: bookinglab-agent-3-admin
+          name: agent-api-nemotron
           path: |
             agent.patch
             agent.noop
           if-no-files-found: ignore
 
 
-  agent-public:
-    name: Agent 4 - GLM Public
+  # ============================================================
+  # AGENT 2 — Nemotron 3 Ultra — Dashboard
+  # ============================================================
+  agent-dashboard-nemotron:
+    name: "Agent 2 - Nemotron Ultra - Dashboard"
     runs-on: ubuntu-latest
-    timeout-minutes: 18
+    timeout-minutes: 11
 
     env:
-      NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
-      NVIDIA_BASE_URL: https://integrate.api.nvidia.com/v1
+      NVIDIA_MODEL_ID: nvidia/nemotron-3-ultra-550b-a55b
+      OPENCODE_MODEL: nvidia/nvidia/nemotron-3-ultra-550b-a55b
+      ASSIGNED_FILE: web/app/dashboard/page.tsx
 
       AGENT_PROMPT: |
-        You are Agent 4 for the BookingLab project.
+        You are Agent 2 in a controlled BookingLab engineering task.
 
-        Repository:
-        amrZiyada/mtb
+        YOUR ONLY ASSIGNED FILE:
+        web/app/dashboard/page.tsx
 
-        ASSIGNED FILE:
-        web/app/page.tsx
+        YOUR TASK:
+        Audit the staff dashboard patient address flow and fix only real defects.
 
-        TASK:
-        Audit the public patient booking flow for patient address.
+        Requirements:
+        - Existing reservation address must be displayed correctly.
+        - When a staff user edits a permitted reservation, address must be included in
+          the save operation.
+        - The address field must remain editable where the existing BookingLab permission
+          rules allow editing.
+        - Do not change status workflow.
+        - Do not change permissions.
+        - Do not change commission calculations.
+        - Do not change test pricing.
+        - Do not change original_total behavior.
+        - Do not change authentication/session behavior.
 
-        Verify that:
-        1. Address field exists.
-        2. Entered address is included in booking request.
-        3. Address is preserved as entered.
-        4. Address does not interfere with tests, cart, pricing, or preferred date/time.
+        Valid statuses are exactly:
+        PENDING -> ASSIGNED -> ACCEPTED -> CONFIRMED -> DONE
 
-        IMPORTANT RULES:
-        - Statuses are EXACTLY:
-          PENDING -> ASSIGNED -> ACCEPTED -> CONFIRMED -> DONE
-        - There is NO CANCELLED status.
-        - Do not change authentication.
-        - Do not change roles.
-        - Do not change commissions.
-        - Do not change pricing.
-        - Do not change test metadata.
-        - Do not change cart behavior.
-        - Do not change original_total.
-        - Do not change assignment behavior.
-        - Do not modify unrelated files.
+        There is NO CANCELLED status.
 
-        FIRST inspect the existing implementation.
+        HARD SCOPE:
+        - You may inspect and modify ONLY web/app/dashboard/page.tsx.
+        - Do not inspect or modify api/src/index.ts.
+        - Do not inspect or modify web/lib/api.ts.
+        - Do not modify package files.
+        - Do not modify migrations.
+        - Do not modify configuration.
+        - Do not refactor unrelated code.
+        - Do not create tests or documentation files.
+        - Do not run npm commands.
+        - Do not run tsc.
+        - Do not run build.
+        - If the implementation is already correct, make NO source change.
 
-        If already correct:
-        make NO changes and finish immediately.
+        IMPORTANT:
+        Work directly and finish quickly.
+        Do not explore unrelated files.
 
-        If a real defect exists:
-        make the smallest necessary change ONLY in web/app/page.tsx.
-
-        Do NOT run tests, builds, or TypeScript validation yourself.
-        Do NOT repair unrelated TypeScript errors.
-        Do NOT modify web/lib/api.ts.
-        Do NOT modify tsconfig files.
-        Do NOT modify package files.
-        Do NOT modify any other file.
-
-        Stop immediately after the required source change is complete.
+        BEFORE FINISHING:
+        - If a real defect exists, fix only web/app/dashboard/page.tsx.
+        - If no defect exists, leave it unchanged.
+        - If changed, commit ONLY web/app/dashboard/page.tsx with:
+          fix: BookingLab dashboard address flow
+        - Do not push.
+        - Do not create a PR.
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v7
-        with:
-          node-version: 22
-
-      - name: Install Web dependencies
-        working-directory: web
-        run: npm ci
-
-      - name: Install OpenCode
-        run: npm install -g opencode-ai@1.18.31
+        uses: actions/checkout@v4
 
       - name: Record baseline
         run: |
-          set -euo pipefail
-          BASE_SHA="$(git rev-parse HEAD)"
-          echo "BASE_SHA=$BASE_SHA" >> "$GITHUB_ENV"
-          echo "Baseline: $BASE_SHA"
+          git status --short
+          git rev-parse HEAD > /tmp/base_sha
 
-      - name: Run GLM
-        timeout-minutes: 9
+      - name: Install OpenCode
         run: |
-          set -euo pipefail
+          npm install -g "opencode-ai@${OPENCODE_VERSION}"
+          opencode --version
 
-          timeout --foreground 8m opencode run \
-            --model "nvidia/z-ai/glm-5.3" \
+      - name: NVIDIA model preflight
+        env:
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+        run: |
+          set -e
+          HTTP_CODE="$(
+            curl -sS \
+              --max-time 45 \
+              -o /tmp/nvidia-preflight.json \
+              -w "%{http_code}" \
+              "$NVIDIA_BASE_URL/chat/completions" \
+              -H "Authorization: Bearer $NVIDIA_API_KEY" \
+              -H "Content-Type: application/json" \
+              -d "{
+                \"model\":\"$NVIDIA_MODEL_ID\",
+                \"messages\":[{\"role\":\"user\",\"content\":\"Reply with exactly OK\"}],
+                \"max_tokens\":4,
+                \"stream\":false
+              }"
+          )"
+
+          echo "NVIDIA preflight HTTP: $HTTP_CODE"
+          cat /tmp/nvidia-preflight.json
+
+          test "$HTTP_CODE" = "200"
+
+      - name: Create OpenCode config
+        env:
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+        run: |
+          cat > opencode.json <<EOF
+          {
+            "\$schema":"https://opencode.ai/config.json",
+            "model":"$OPENCODE_MODEL",
+            "provider":{
+              "nvidia":{
+                "npm":"@ai-sdk/openai-compatible",
+                "name":"NVIDIA NIM",
+                "options":{
+                  "baseURL":"{env:NVIDIA_BASE_URL}",
+                  "apiKey":"{env:NVIDIA_API_KEY}"
+                },
+                "models":{
+                  "$NVIDIA_MODEL_ID":{
+                    "name":"$NVIDIA_MODEL_ID",
+                    "limit":{
+                      "context":1000000,
+                      "output":16384
+                    }
+                  }
+                }
+              }
+            }
+          }
+          EOF
+
+          cat opencode.json
+
+      - name: Run Agent
+        env:
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+        run: |
+          set +e
+          timeout --foreground 8m \
+            opencode run \
+            --model "$OPENCODE_MODEL" \
             --print-logs \
             "$AGENT_PROMPT"
 
+          CODE=$?
+          echo "OpenCode exit code: $CODE"
+
+          if [ "$CODE" -ne 0 ] && [ "$CODE" -ne 124 ]; then
+            exit "$CODE"
+          fi
+
+          exit 0
+
+      - name: Clean generated TypeScript cache
+        run: |
+          find . -name "*.tsbuildinfo" -type f -delete
+
+      - name: Verify scope
+        run: |
+          set -e
+
+          BASE_SHA="$(cat /tmp/base_sha)"
+          CHANGED="$(git diff --name-only "$BASE_SHA" HEAD)"
+
+          echo "Changed files:"
+          printf '%s\n' "$CHANGED"
+
+          if [ -n "$CHANGED" ] && [ "$CHANGED" != "$ASSIGNED_FILE" ]; then
+            echo "ERROR: Agent modified files outside assigned scope."
+            exit 1
+          fi
+
+          if [ -n "$(git status --short --untracked-files=all)" ]; then
+            echo "ERROR: Unexpected untracked/modified files:"
+            git status --short --untracked-files=all
+            exit 1
+          fi
+
       - name: Validate Web TypeScript
-        working-directory: web
-        timeout-minutes: 3
         run: |
-          set -euo pipefail
+          set -e
+          cd web
+          npm ci --no-audit --no-fund
+          npx tsc --noEmit --incremental false
 
-          rm -f tsconfig.tsbuildinfo
-
-          timeout 150s npm exec --no -- tsc \
-            --noEmit \
-            --incremental false
-
-      - name: Clean generated files
+      - name: Create artifact
         run: |
-          set -euo pipefail
-          find . -name '*.tsbuildinfo' -type f -delete 2>/dev/null || true
+          set -e
+          BASE_SHA="$(cat /tmp/base_sha)"
 
-      - name: Verify scope and create artifact
-        timeout-minutes: 2
+          if git diff --quiet "$BASE_SHA" HEAD; then
+            echo "NO_CHANGE" > agent.noop
+          else
+            git format-patch -1 HEAD --stdout > agent.patch
+          fi
+
+      - name: Upload agent artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent-dashboard-nemotron
+          path: |
+            agent.patch
+            agent.noop
+          if-no-files-found: ignore
+
+
+  # ============================================================
+  # AGENT 3 — DeepSeek V4 Flash 0731 — Admin
+  # ============================================================
+  agent-admin-deepseek:
+    name: "Agent 3 - DeepSeek V4 Flash - Admin"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    env:
+      NVIDIA_MODEL_ID: deepseek-ai/deepseek-v4-flash-0731
+      OPENCODE_MODEL: nvidia/deepseek-ai/deepseek-v4-flash-0731
+      ASSIGNED_FILE: web/app/admin/page.tsx
+
+      AGENT_PROMPT: |
+        You are Agent 3 in a tightly bounded BookingLab engineering task.
+
+        THE ONLY FILE YOU ARE ALLOWED TO READ OR MODIFY:
+        web/app/admin/page.tsx
+
+        TASK:
+        Audit ONLY the patient address handling in this file.
+
+        Check:
+        - Is the reservation address displayed correctly?
+        - Is the address field correctly bound to the reservation data?
+        - When an administrator edits/saves a reservation, is address included in the
+          existing save payload?
+        - Does the address flow preserve all existing BookingLab behavior?
+
+        If the address flow is already correct:
+        STOP immediately and make NO CHANGE.
+
+        If there is a real defect:
+        Modify ONLY web/app/admin/page.tsx to fix that defect.
+
+        ABSOLUTE RULES:
+        - Do NOT open api/src/index.ts.
+        - Do NOT open web/lib/api.ts.
+        - Do NOT open any other source file.
+        - Do NOT inspect package files.
+        - Do NOT inspect migrations.
+        - Do NOT inspect configuration files.
+        - Do NOT run git diff.
+        - Do NOT run git status.
+        - Do NOT run npm.
+        - Do NOT run tsc.
+        - Do NOT run build.
+        - Do NOT run tests.
+        - Do NOT refactor.
+        - Do NOT touch authentication.
+        - Do NOT touch authorization.
+        - Do NOT touch statuses.
+        - Do NOT touch commissions.
+        - Do NOT touch pricing.
+        - Do NOT touch tests.
+        - Do NOT touch assignment rules.
+        - Do NOT create any other file.
+
+        Booking statuses must remain exactly:
+        PENDING -> ASSIGNED -> ACCEPTED -> CONFIRMED -> DONE
+
+        There is NO CANCELLED status.
+
+        IMPORTANT:
+        This is a surgical one-file task.
+        Finish as soon as the address flow has been checked.
+
+        BEFORE FINISHING:
+        - No defect: leave the file unchanged.
+        - Defect: fix only the defect.
+        - If changed, commit ONLY web/app/admin/page.tsx with:
+          fix: BookingLab admin address flow
+        - Do not push.
+        - Do not create a PR.
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Record baseline
         run: |
-          set -euo pipefail
+          git status --short
+          git rev-parse HEAD > /tmp/base_sha
 
-          ASSIGNED="web/app/page.tsx"
+      - name: Install OpenCode
+        run: |
+          npm install -g "opencode-ai@${OPENCODE_VERSION}"
+          opencode --version
 
-          TRACKED_CHANGED="$(git diff --name-only "$BASE_SHA")"
-          UNTRACKED_CHANGED="$(git ls-files --others --exclude-standard)"
-
-          echo "Tracked changes:"
-          printf '%s\n' "$TRACKED_CHANGED"
-
-          echo "Untracked files:"
-          printf '%s\n' "$UNTRACKED_CHANGED"
-
-          BAD_TRACKED="$(
-            printf '%s\n' "$TRACKED_CHANGED" |
-            sed '/^$/d' |
-            grep -vxF "$ASSIGNED" || true
+      - name: NVIDIA model preflight
+        env:
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+        run: |
+          set -e
+          HTTP_CODE="$(
+            curl -sS \
+              --max-time 45 \
+              -o /tmp/nvidia-preflight.json \
+              -w "%{http_code}" \
+              "$NVIDIA_BASE_URL/chat/completions" \
+              -H "Authorization: Bearer $NVIDIA_API_KEY" \
+              -H "Content-Type: application/json" \
+              -d "{
+                \"model\":\"$NVIDIA_MODEL_ID\",
+                \"messages\":[{\"role\":\"user\",\"content\":\"Reply with exactly OK\"}],
+                \"max_tokens\":4,
+                \"stream\":false,
+                \"reasoning_effort\":\"none\"
+              }"
           )"
 
-          if [ -n "$BAD_TRACKED" ]; then
-            echo "ERROR: Changes outside assigned file:"
-            printf '%s\n' "$BAD_TRACKED"
+          echo "NVIDIA preflight HTTP: $HTTP_CODE"
+          cat /tmp/nvidia-preflight.json
+
+          test "$HTTP_CODE" = "200"
+
+      - name: Create OpenCode config
+        env:
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+        run: |
+          cat > opencode.json <<EOF
+          {
+            "\$schema":"https://opencode.ai/config.json",
+            "model":"$OPENCODE_MODEL",
+            "provider":{
+              "nvidia":{
+                "npm":"@ai-sdk/openai-compatible",
+                "name":"NVIDIA NIM",
+                "options":{
+                  "baseURL":"{env:NVIDIA_BASE_URL}",
+                  "apiKey":"{env:NVIDIA_API_KEY}"
+                },
+                "models":{
+                  "$NVIDIA_MODEL_ID":{
+                    "name":"$NVIDIA_MODEL_ID",
+                    "limit":{
+                      "context":1000000,
+                      "output":16384
+                    }
+                  }
+                }
+              }
+            }
+          }
+          EOF
+
+          cat opencode.json
+
+      - name: Run Agent
+        env:
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+        run: |
+          set +e
+          timeout --foreground 8m \
+            opencode run \
+            --model "$OPENCODE_MODEL" \
+            --print-logs \
+            "$AGENT_PROMPT"
+
+          CODE=$?
+          echo "OpenCode exit code: $CODE"
+
+          if [ "$CODE" -ne 0 ] && [ "$CODE" -ne 124 ]; then
+            exit "$CODE"
+          fi
+
+          exit 0
+
+      - name: Clean generated TypeScript cache
+        run: |
+          find . -name "*.tsbuildinfo" -type f -delete
+
+      - name: Verify scope
+        run: |
+          set -e
+
+          BASE_SHA="$(cat /tmp/base_sha)"
+          CHANGED="$(git diff --name-only "$BASE_SHA" HEAD)"
+
+          echo "Changed files:"
+          printf '%s\n' "$CHANGED"
+
+          if [ -n "$CHANGED" ] && [ "$CHANGED" != "$ASSIGNED_FILE" ]; then
+            echo "ERROR: Agent modified files outside assigned scope."
             exit 1
           fi
 
-          if [ -n "$UNTRACKED_CHANGED" ]; then
-            echo "ERROR: Unexpected untracked files:"
-            printf '%s\n' "$UNTRACKED_CHANGED"
+          if [ -n "$(git status --short --untracked-files=all)" ]; then
+            echo "ERROR: Unexpected untracked/modified files:"
+            git status --short --untracked-files=all
             exit 1
           fi
 
-          if git diff --quiet "$BASE_SHA" -- "$ASSIGNED"; then
+      - name: Validate Web TypeScript
+        run: |
+          set -e
+          cd web
+          npm ci --no-audit --no-fund
+          npx tsc --noEmit --incremental false
+
+      - name: Create artifact
+        run: |
+          set -e
+          BASE_SHA="$(cat /tmp/base_sha)"
+
+          if git diff --quiet "$BASE_SHA" HEAD; then
             echo "NO_CHANGE" > agent.noop
-            echo "Agent 4: NO CHANGE"
           else
-            git diff "$BASE_SHA" -- "$ASSIGNED" > agent.patch
-            test -s agent.patch
-            echo "Agent 4: PATCH CREATED"
+            git format-patch -1 HEAD --stdout > agent.patch
           fi
 
-      - name: Upload Public artifact
-        uses: actions/upload-artifact@v6
+      - name: Upload agent artifact
+        uses: actions/upload-artifact@v4
         with:
-          name: bookinglab-agent-4-public
+          name: agent-admin-deepseek
+          path: |
+            agent.patch
+            agent.noop
+          if-no-files-found: ignore
+
+
+  # ============================================================
+  # AGENT 4 — GLM 5.3 Flash — Public
+  # ============================================================
+  agent-public-glm:
+    name: "Agent 4 - GLM 5.3 Flash - Public"
+    runs-on: ubuntu-latest
+    timeout-minutes: 11
+
+    env:
+      NVIDIA_MODEL_ID: z-ai/glm-5.3-flash
+      OPENCODE_MODEL: nvidia/z-ai/glm-5.3-flash
+      ASSIGNED_FILE: web/app/page.tsx
+
+      AGENT_PROMPT: |
+        You are Agent 4 in a controlled BookingLab engineering task.
+
+        YOUR ONLY ASSIGNED FILE:
+        web/app/page.tsx
+
+        YOUR TASK:
+        Audit the public patient booking address flow and fix only real defects.
+
+        Requirements:
+        - The public booking form must collect patient address.
+        - Address must be included in the booking submission.
+        - Existing selected tests/cart behavior must remain unchanged.
+        - Do not change test pricing.
+        - Do not change original_total behavior.
+        - Do not change status workflow.
+        - Do not change authentication.
+        - Do not change admin/staff permissions.
+        - Do not change commissions.
+        - Do not change assignment rules.
+
+        Valid statuses are exactly:
+        PENDING -> ASSIGNED -> ACCEPTED -> CONFIRMED -> DONE
+
+        There is NO CANCELLED status.
+
+        HARD SCOPE:
+        - You may inspect and modify ONLY web/app/page.tsx.
+        - Do not inspect or modify API source.
+        - Do not inspect web/lib/api.ts.
+        - Do not modify package files.
+        - Do not modify migrations.
+        - Do not modify configuration.
+        - Do not refactor unrelated code.
+        - Do not create tests or documentation files.
+        - Do not run npm commands.
+        - Do not run tsc.
+        - Do not run build.
+        - If the implementation is already correct, make NO source change.
+
+        IMPORTANT:
+        Work directly and finish quickly.
+        Do not explore unrelated files.
+
+        BEFORE FINISHING:
+        - If a real defect exists, fix only web/app/page.tsx.
+        - If no defect exists, leave it unchanged.
+        - If changed, commit ONLY web/app/page.tsx with:
+          fix: BookingLab public address flow
+        - Do not push.
+        - Do not create a PR.
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Record baseline
+        run: |
+          git status --short
+          git rev-parse HEAD > /tmp/base_sha
+
+      - name: Install OpenCode
+        run: |
+          npm install -g "opencode-ai@${OPENCODE_VERSION}"
+          opencode --version
+
+      - name: NVIDIA model preflight
+        env:
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+        run: |
+          set -e
+          HTTP_CODE="$(
+            curl -sS \
+              --max-time 45 \
+              -o /tmp/nvidia-preflight.json \
+              -w "%{http_code}" \
+              "$NVIDIA_BASE_URL/chat/completions" \
+              -H "Authorization: Bearer $NVIDIA_API_KEY" \
+              -H "Content-Type: application/json" \
+              -d "{
+                \"model\":\"$NVIDIA_MODEL_ID\",
+                \"messages\":[{\"role\":\"user\",\"content\":\"Reply with exactly OK\"}],
+                \"max_tokens\":4,
+                \"stream\":false,
+                \"reasoning_effort\":\"low\"
+              }"
+          )"
+
+          echo "NVIDIA preflight HTTP: $HTTP_CODE"
+          cat /tmp/nvidia-preflight.json
+
+          test "$HTTP_CODE" = "200"
+
+      - name: Create OpenCode config
+        env:
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+        run: |
+          cat > opencode.json <<EOF
+          {
+            "\$schema":"https://opencode.ai/config.json",
+            "model":"$OPENCODE_MODEL",
+            "provider":{
+              "nvidia":{
+                "npm":"@ai-sdk/openai-compatible",
+                "name":"NVIDIA NIM",
+                "options":{
+                  "baseURL":"{env:NVIDIA_BASE_URL}",
+                  "apiKey":"{env:NVIDIA_API_KEY}"
+                },
+                "models":{
+                  "$NVIDIA_MODEL_ID":{
+                    "name":"$NVIDIA_MODEL_ID",
+                    "limit":{
+                      "context":1000000,
+                      "output":16384
+                    }
+                  }
+                }
+              }
+            }
+          }
+          EOF
+
+          cat opencode.json
+
+      - name: Run Agent
+        env:
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+        run: |
+          set +e
+          timeout --foreground 8m \
+            opencode run \
+            --model "$OPENCODE_MODEL" \
+            --print-logs \
+            "$AGENT_PROMPT"
+
+          CODE=$?
+          echo "OpenCode exit code: $CODE"
+
+          if [ "$CODE" -ne 0 ] && [ "$CODE" -ne 124 ]; then
+            exit "$CODE"
+          fi
+
+          exit 0
+
+      - name: Clean generated TypeScript cache
+        run: |
+          find . -name "*.tsbuildinfo" -type f -delete
+
+      - name: Verify scope
+        run: |
+          set -e
+
+          BASE_SHA="$(cat /tmp/base_sha)"
+          CHANGED="$(git diff --name-only "$BASE_SHA" HEAD)"
+
+          echo "Changed files:"
+          printf '%s\n' "$CHANGED"
+
+          if [ -n "$CHANGED" ] && [ "$CHANGED" != "$ASSIGNED_FILE" ]; then
+            echo "ERROR: Agent modified files outside assigned scope."
+            exit 1
+          fi
+
+          if [ -n "$(git status --short --untracked-files=all)" ]; then
+            echo "ERROR: Unexpected untracked/modified files:"
+            git status --short --untracked-files=all
+            exit 1
+          fi
+
+      - name: Validate Web TypeScript
+        run: |
+          set -e
+          cd web
+          npm ci --no-audit --no-fund
+          npx tsc --noEmit --incremental false
+
+      - name: Create artifact
+        run: |
+          set -e
+          BASE_SHA="$(cat /tmp/base_sha)"
+
+          if git diff --quiet "$BASE_SHA" HEAD; then
+            echo "NO_CHANGE" > agent.noop
+          else
+            git format-patch -1 HEAD --stdout > agent.patch
+          fi
+
+      - name: Upload agent artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent-public-glm
           path: |
             agent.patch
             agent.noop
