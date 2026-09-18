@@ -1,4 +1,4 @@
-name: BookingLab Real Task - 4 Cloud Agents v3.1
+name: BookingLab Real Task - 4 Cloud Agents v3.2
 
 on:
   workflow_dispatch:
@@ -15,7 +15,7 @@ jobs:
   agent-api:
     name: Agent 1 - Nemotron API
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 18
 
     env:
       NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
@@ -66,7 +66,12 @@ jobs:
         - Do not create speculative improvements.
         - Do not rewrite the file.
 
-        Ensure the final assigned file is valid TypeScript.
+        IMPORTANT:
+        If you encounter an existing TypeScript error in an unrelated file,
+        do NOT modify that unrelated file.
+        Only work on api/src/index.ts.
+
+        Ensure the assigned file is valid TypeScript.
 
     steps:
       - name: Checkout repository
@@ -94,11 +99,11 @@ jobs:
           echo "Baseline: $BASE_SHA"
 
       - name: Run Nemotron
-        timeout-minutes: 10
+        timeout-minutes: 11
         run: |
           set -euo pipefail
 
-          timeout 8m opencode run \
+          timeout 10m opencode run \
             --model "nvidia/nvidia/nemotron-3-ultra-550b-a55b" \
             --print-logs \
             "$AGENT_PROMPT"
@@ -109,6 +114,12 @@ jobs:
         run: |
           set -euo pipefail
           timeout 150s npm exec --no -- tsc --noEmit --incremental false
+
+      - name: Clean generated TypeScript cache
+        run: |
+          set -euo pipefail
+          find web -name '*.tsbuildinfo' -type f -delete 2>/dev/null || true
+          find api -name '*.tsbuildinfo' -type f -delete 2>/dev/null || true
 
       - name: Verify scope and create artifact
         timeout-minutes: 2
@@ -174,7 +185,7 @@ jobs:
   agent-dashboard:
     name: Agent 2 - GLM Dashboard
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
 
     env:
       NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
@@ -227,7 +238,12 @@ jobs:
         - Do not create speculative improvements.
         - Do not rewrite the page.
 
-        Ensure the final assigned file is valid TypeScript/TSX.
+        IMPORTANT:
+        Do not modify web/lib/api.ts, tsconfig files, package files,
+        or any other file to repair an unrelated TypeScript error.
+        If an existing unrelated TypeScript error appears, leave it untouched.
+
+        Ensure the assigned file is valid TypeScript/TSX.
 
     steps:
       - name: Checkout repository
@@ -255,11 +271,11 @@ jobs:
           echo "Baseline: $BASE_SHA"
 
       - name: Run GLM
-        timeout-minutes: 10
+        timeout-minutes: 13
         run: |
           set -euo pipefail
 
-          timeout 8m opencode run \
+          timeout 12m opencode run \
             --model "nvidia/z-ai/glm-5.3" \
             --print-logs \
             "$AGENT_PROMPT"
@@ -269,7 +285,14 @@ jobs:
         timeout-minutes: 3
         run: |
           set -euo pipefail
+          rm -f tsconfig.tsbuildinfo
           timeout 150s npm exec --no -- tsc --noEmit --incremental false
+
+      - name: Clean generated TypeScript cache
+        run: |
+          set -euo pipefail
+          find web -name '*.tsbuildinfo' -type f -delete 2>/dev/null || true
+          find api -name '*.tsbuildinfo' -type f -delete 2>/dev/null || true
 
       - name: Verify scope and create artifact
         timeout-minutes: 2
@@ -335,7 +358,7 @@ jobs:
   agent-admin:
     name: Agent 3 - GLM Admin
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
 
     env:
       NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
@@ -391,7 +414,12 @@ jobs:
         - Make the smallest safe change necessary.
         - Modify ONLY web/app/admin/page.tsx.
 
-        Ensure the final assigned file is valid TypeScript/TSX.
+        IMPORTANT:
+        Do not modify web/lib/api.ts, tsconfig files, package files,
+        or any other file to repair an unrelated TypeScript error.
+        If an existing unrelated TypeScript error appears, leave it untouched.
+
+        Ensure the assigned file is valid TypeScript/TSX.
 
     steps:
       - name: Checkout repository
@@ -419,11 +447,11 @@ jobs:
           echo "Baseline: $BASE_SHA"
 
       - name: Run GLM
-        timeout-minutes: 10
+        timeout-minutes: 13
         run: |
           set -euo pipefail
 
-          timeout 8m opencode run \
+          timeout 12m opencode run \
             --model "nvidia/z-ai/glm-5.3" \
             --print-logs \
             "$AGENT_PROMPT"
@@ -433,7 +461,14 @@ jobs:
         timeout-minutes: 3
         run: |
           set -euo pipefail
+          rm -f tsconfig.tsbuildinfo
           timeout 150s npm exec --no -- tsc --noEmit --incremental false
+
+      - name: Clean generated TypeScript cache
+        run: |
+          set -euo pipefail
+          find web -name '*.tsbuildinfo' -type f -delete 2>/dev/null || true
+          find api -name '*.tsbuildinfo' -type f -delete 2>/dev/null || true
 
       - name: Verify scope and create artifact
         timeout-minutes: 2
@@ -499,7 +534,7 @@ jobs:
   agent-public:
     name: Agent 4 - GLM Public
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 18
 
     env:
       NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
@@ -550,7 +585,12 @@ jobs:
         - Do not create speculative improvements.
         - Do not rewrite the page.
 
-        Ensure the final assigned file is valid TypeScript/TSX.
+        IMPORTANT:
+        Do not modify web/lib/api.ts, tsconfig files, package files,
+        or any other file to repair an unrelated TypeScript error.
+        If an existing unrelated TypeScript error appears, leave it untouched.
+
+        Ensure the assigned file is valid TypeScript/TSX.
 
     steps:
       - name: Checkout repository
@@ -578,11 +618,11 @@ jobs:
           echo "Baseline: $BASE_SHA"
 
       - name: Run GLM
-        timeout-minutes: 10
+        timeout-minutes: 11
         run: |
           set -euo pipefail
 
-          timeout 8m opencode run \
+          timeout 10m opencode run \
             --model "nvidia/z-ai/glm-5.3" \
             --print-logs \
             "$AGENT_PROMPT"
@@ -592,7 +632,14 @@ jobs:
         timeout-minutes: 3
         run: |
           set -euo pipefail
+          rm -f tsconfig.tsbuildinfo
           timeout 150s npm exec --no -- tsc --noEmit --incremental false
+
+      - name: Clean generated TypeScript cache
+        run: |
+          set -euo pipefail
+          find web -name '*.tsbuildinfo' -type f -delete 2>/dev/null || true
+          find api -name '*.tsbuildinfo' -type f -delete 2>/dev/null || true
 
       - name: Verify scope and create artifact
         timeout-minutes: 2
