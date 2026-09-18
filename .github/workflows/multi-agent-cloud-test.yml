@@ -1,4 +1,4 @@
-name: Multi-Agent Coding Test
+name: BookingLab 4-Agent Integration Test
 
 on:
   workflow_dispatch:
@@ -13,23 +13,37 @@ jobs:
 
     strategy:
       fail-fast: false
-      max-parallel: 2
+      max-parallel: 4
 
       matrix:
         include:
-          - agent: "Agent 1 - Nemotron"
+          - agent: "Agent 1 - Nemotron - API"
             model: "nvidia/nvidia/nemotron-3-ultra-550b-a55b"
             model_key: "nvidia/nemotron-3-ultra-550b-a55b"
             display_model: "Nemotron 3 Ultra 550B"
-            branch: "cloud-test/nemotron"
-            test_file: ".cloud-agent-tests/nemotron.md"
+            branch: "cloud-test/api-nemotron"
+            target_file: "api/src/index.ts"
 
-          - agent: "Agent 2 - GLM-5.3"
+          - agent: "Agent 2 - GLM-5.3 - Dashboard"
             model: "nvidia/z-ai/glm-5.3"
             model_key: "z-ai/glm-5.3"
             display_model: "GLM-5.3"
-            branch: "cloud-test/glm-5-3"
-            test_file: ".cloud-agent-tests/glm-5-3.md"
+            branch: "cloud-test/dashboard-glm"
+            target_file: "web/app/dashboard/page.tsx"
+
+          - agent: "Agent 3 - Nemotron - Admin"
+            model: "nvidia/nvidia/nemotron-3-ultra-550b-a55b"
+            model_key: "nvidia/nemotron-3-ultra-550b-a55b"
+            display_model: "Nemotron 3 Ultra 550B"
+            branch: "cloud-test/admin-nemotron"
+            target_file: "web/app/admin/page.tsx"
+
+          - agent: "Agent 4 - GLM-5.3 - Public"
+            model: "nvidia/z-ai/glm-5.3"
+            model_key: "z-ai/glm-5.3"
+            display_model: "GLM-5.3"
+            branch: "cloud-test/public-glm"
+            target_file: "web/app/page.tsx"
 
     timeout-minutes: 15
 
@@ -45,15 +59,17 @@ jobs:
         with:
           node-version: 22
 
-      - name: Create isolated local branch
+      - name: Create isolated branch
         run: |
           git switch -c "${{ matrix.branch }}"
 
           echo "========================================"
-          echo "AGENT: ${{ matrix.agent }}"
-          echo "MODEL: ${{ matrix.display_model }}"
-          echo "BRANCH: ${{ matrix.branch }}"
-          echo "TEST FILE: ${{ matrix.test_file }}"
+          echo "BOOKINGLAB 4-AGENT TEST"
+          echo "========================================"
+          echo "Agent:        ${{ matrix.agent }}"
+          echo "Model:        ${{ matrix.display_model }}"
+          echo "Branch:       ${{ matrix.branch }}"
+          echo "Target file:  ${{ matrix.target_file }}"
           echo "========================================"
 
           git branch --show-current
@@ -97,66 +113,74 @@ jobs:
           }
           EOF
 
-          echo "OpenCode configuration created."
-
-      - name: Prepare isolated test task
+      - name: Prepare coding task
         run: |
-          mkdir -p .cloud-agent-tests
-
           cat > agent-task.md <<EOF
           You are ${{ matrix.agent }}.
 
-          This is a SAFE CLOUD CODING TEST.
+          This is a SAFE BookingLab isolation test.
 
-          Your ONLY allowed application-side modification is:
+          Your assigned file is EXACTLY:
 
-          ${{ matrix.test_file }}
+          ${{ matrix.target_file }}
 
-          You may create that file if it does not exist.
+          You MUST inspect the repository and the assigned file before editing.
 
-          DO NOT modify:
-          - api/
-          - web/
+          YOUR ONLY ALLOWED SOURCE FILE TO MODIFY IS:
+
+          ${{ matrix.target_file }}
+
+          Do NOT modify any other tracked file.
+
+          Do NOT modify:
+          - any other file under api/
+          - any other file under web/
           - package.json
           - package-lock.json
-          - wrangler configuration
+          - tsconfig files
+          - wrangler files
           - database migrations
-          - deployment configuration
           - GitHub workflows
-          - any existing application source file
+          - configuration files
+          - tests outside the assigned file
 
           TASK:
 
-          1. Inspect the repository.
-          2. Create or update:
-             ${{ matrix.test_file }}
-          3. The Markdown file must contain:
-             - Agent/model identity: ${{ matrix.display_model }}
-             - Confirmation that it is running inside GitHub Actions
-             - Current git branch
-             - Short BookingLab architecture description
-             - A shell-generated timestamp
-             - Final line:
-               CLOUD CODING AGENT TEST PASSED
-          4. Verify the file exists.
-          5. Review git diff.
-          6. Commit ONLY the requested test file.
+          Make ONE harmless, clearly reversible change to the assigned file.
 
-          Do NOT:
-          - push anything
-          - create a pull request
-          - modify main
-          - modify any application source file
-          - deploy anything
+          Add exactly one short comment indicating that this file was inspected
+          by the BookingLab cloud coding-agent isolation test.
 
-          Create a local git commit containing ONLY:
-          ${{ matrix.test_file }}
+          The comment must NOT change application behavior.
 
-          After committing, report the commit hash.
+          Use the correct comment syntax for the file.
 
-          Finish with exactly:
+          Do NOT refactor.
+          Do NOT reformat unrelated code.
+          Do NOT change logic.
+          Do NOT fix unrelated issues.
+          Do NOT add dependencies.
 
-          CLOUD CODING AGENT COMPLETE
+          After the change:
+
+          1. Inspect git diff.
+          2. Confirm ONLY the assigned file changed.
+          3. Verify the comment exists.
+          4. Create a LOCAL git commit.
+          5. Commit ONLY the assigned file.
+
+          Do NOT push.
+          Do NOT create a pull request.
+          Do NOT deploy.
+          Do NOT modify main.
+
+          Commit message should be:
+
+          BookingLab cloud agent isolation test
+
+          Finish your response with exactly:
+
+          BOOKINGLAB AGENT ISOLATION TEST COMPLETE
           EOF
 
       - name: Run OpenCode coding agent
@@ -165,10 +189,10 @@ jobs:
           NVIDIA_BASE_URL: https://integrate.api.nvidia.com/v1
         run: |
           echo "========================================"
-          echo "STARTING CODING AGENT"
+          echo "STARTING OPENCode"
           echo "Agent: ${{ matrix.agent }}"
           echo "Model: ${{ matrix.display_model }}"
-          echo "Branch: ${{ matrix.branch }}"
+          echo "Target: ${{ matrix.target_file }}"
           echo "========================================"
 
           opencode run \
@@ -176,81 +200,97 @@ jobs:
             --print-logs \
             "$(cat agent-task.md)"
 
-      - name: Verify agent changes
+      - name: Verify strict file isolation
         run: |
           echo "========================================"
-          echo "BRANCH"
+          echo "VERIFYING FILE ISOLATION"
           echo "========================================"
+
+          echo
+          echo "Current branch:"
           git branch --show-current
 
           echo
-          echo "========================================"
-          echo "STATUS"
-          echo "========================================"
-          git status --short
-
-          echo
-          echo "========================================"
-          echo "LATEST COMMIT"
-          echo "========================================"
+          echo "Latest commit:"
           git log -1 --oneline
 
           echo
-          echo "========================================"
-          echo "FILES IN AGENT COMMIT"
-          echo "========================================"
-
+          echo "Committed files:"
           git diff-tree --no-commit-id --name-only -r HEAD
 
-          echo
-          echo "========================================"
-          echo "VERIFYING COMMIT CONTENT"
-          echo "========================================"
+          EXPECTED="${{ matrix.target_file }}"
 
           COMMITTED_FILES=$(git diff-tree --no-commit-id --name-only -r HEAD)
 
-          EXPECTED="${{ matrix.test_file }}"
-
           if [ "$COMMITTED_FILES" != "$EXPECTED" ]; then
-            echo "ERROR: Agent commit contains unexpected files."
-            echo "Expected:"
+            echo
+            echo "ERROR: Agent modified or committed an unauthorized file."
+            echo
+            echo "Expected only:"
             echo "$EXPECTED"
             echo
-            echo "Actual:"
+            echo "Actually committed:"
             echo "$COMMITTED_FILES"
             exit 1
           fi
 
-          echo "Commit contains exactly the allowed test file."
+          echo
+          echo "Commit contains ONLY the assigned file."
+
+          echo
+          echo "Checking working tree:"
+          git status --short
+
+          echo
+          echo "Checking assigned file:"
+          test -f "$EXPECTED"
+
+          grep -q "BookingLab cloud coding-agent isolation test" "$EXPECTED"
+
+          echo
+          echo "Required isolation-test comment found."
 
           echo
           echo "========================================"
-          echo "TEST FILE"
+          echo "ISOLATION TEST PASSED"
           echo "========================================"
 
-          test -f "${{ matrix.test_file }}"
+      - name: Run targeted syntax check
+        run: |
+          echo "========================================"
+          echo "TARGETED VALIDATION"
+          echo "========================================"
 
-          cat "${{ matrix.test_file }}"
+          case "${{ matrix.target_file }}" in
+            api/src/index.ts)
+              cd api
+              npx tsc --noEmit
+              ;;
+
+            web/app/dashboard/page.tsx)
+              cd web
+              npx tsc --noEmit
+              ;;
+
+            web/app/admin/page.tsx)
+              cd web
+              npx tsc --noEmit
+              ;;
+
+            web/app/page.tsx)
+              cd web
+              npx tsc --noEmit
+              ;;
+          esac
 
           echo
-          echo "========================================"
-          echo "VERIFYING TEST CONTENT"
-          echo "========================================"
-
-          grep -q "CLOUD CODING AGENT TEST PASSED" "${{ matrix.test_file }}"
-
-          echo "Required test content found."
-
-          echo
-          echo "========================================"
-          echo "CODING AGENT VERIFICATION PASSED"
-          echo "========================================"
+          echo "TARGETED VALIDATION PASSED"
 
       - name: Create patch artifact
         run: |
-          git format-patch -1 HEAD --stdout > "${{ matrix.agent }}.patch"
+          git format-patch -1 HEAD --stdout \
+            > "${{ matrix.agent }}.patch"
 
-          echo "Patch created:"
           ls -lh "${{ matrix.agent }}.patch"
 
       - name: Upload agent patch
