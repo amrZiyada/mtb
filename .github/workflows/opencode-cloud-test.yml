@@ -65,25 +65,25 @@ jobs:
             --print-logs \
             "You are performing a READ-ONLY inspection of the BookingLab repository.
 
-DO NOT modify any files.
-DO NOT create, delete, or rename files.
-DO NOT commit.
-DO NOT push.
-DO NOT create branches.
-DO NOT create pull requests.
-DO NOT deploy anything.
+            DO NOT modify any files.
+            DO NOT create, delete, or rename files.
+            DO NOT commit.
+            DO NOT push.
+            DO NOT create branches.
+            DO NOT create pull requests.
+            DO NOT deploy anything.
 
-Inspect the repository and report:
+            Inspect the repository and report:
 
-1. Current project structure.
-2. Frontend architecture.
-3. API architecture.
-4. Database/migration structure.
-5. Authentication architecture.
-6. Current git status.
-7. Any uncommitted files you can see.
-8. The current BookingLab version if identifiable.
+            1. Current project structure.
+            2. Frontend architecture.
+            3. API architecture.
+            4. Database/migration structure.
+            5. Authentication architecture.
+            6. Current git status.
+            7. Any uncommitted files you can see.
+            8. The current BookingLab version if identifiable.
 
-Do not make any changes. Finish with exactly:
+            Do not make any changes. Finish with exactly:
 
-NVIDIA OPENCODE CLOUD TEST COMPLETE"
+            NVIDIA OPENCODE CLOUD TEST COMPLETE"
