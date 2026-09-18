@@ -8,7 +8,7 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  contents: read
+  contents: write
 
 env:
   NVIDIA_BASE_URL: https://integrate.api.nvidia.com/v1
@@ -32,9 +32,8 @@ jobs:
           opencode --version
 
       - name: Configure OpenCode
-        env:
-          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
         run: |
+          set -euo pipefail
           cat > opencode.json <<'JSON'
           {
             "$schema": "https://opencode.ai/config.json",
@@ -71,41 +70,33 @@ jobs:
           cat > /tmp/prompt.txt <<'PROMPT'
           You are Agent 1 for the BookingLab production repository.
 
-          Your ONLY allowed source file is:
+          ONLY modify:
           api/src/index.ts
 
-          Do not modify any other source file.
-          Do not create new source files.
-          Do not modify migrations.
-          Do not modify package files.
-          Do not modify workflow files.
-          Do not commit or push anything.
+          Do not modify any other file.
+          Do not create files.
+          Do not commit or push.
 
           TASK:
-          Implement and verify the pending BookingLab reservation-edit/details consistency work in api/src/index.ts.
+          Implement and verify the pending BookingLab reservation edit/details consistency work in api/src/index.ts.
 
           Requirements:
-          1. Preserve the existing BookingLab business rules and authentication/authorization.
-          2. Reservation status workflow remains EXACTLY:
-             PENDING -> ASSIGNED -> ACCEPTED -> CONFIRMED -> DONE
-             There is NO CANCELLED status.
-          3. Preserve original_total once a reservation has been created. Editing a reservation must NOT silently recalculate or overwrite original_total.
-          4. Reservation editing must correctly preserve/update:
-             patient_name, age, gender, phone, address, preferred_at.
-          5. Address must be accepted and persisted when an authorized edit supplies it.
-          6. Original selected tests must remain represented correctly when a reservation is edited. Do not confuse original tests with extra tests.
-          7. Extra tests remain separate from the original reservation tests and must not change commission rules.
-          8. Preserve all existing commission/business logic.
-          9. Preserve staff edit restrictions and finalized-record protection.
-          10. Preserve admin privileges.
-          11. Do not weaken authentication, authorization, CSRF, rate limiting, session handling, or input validation.
-          12. Inspect the existing code first and make the smallest safe production-quality changes necessary.
-          13. Fix any TypeScript errors caused by your changes.
-          14. Run the relevant TypeScript check before finishing.
+          1. Preserve all existing authentication, authorization, CSRF, rate limiting, session handling and validation.
+          2. Status workflow remains exactly:
+          PENDING -> ASSIGNED -> ACCEPTED -> CONFIRMED -> DONE
+          There is NO CANCELLED status.
+          3. Preserve original_total after reservation creation. Editing must not overwrite historical original_total.
+          4. Authorized reservation edits must correctly handle:
+          patient_name, age, gender, phone, address, preferred_at.
+          5. Address supplied by an authorized edit must persist.
+          6. Preserve original selected tests separately from extra tests.
+          7. Do not alter commission rules.
+          8. Preserve staff edit restrictions and finalized-record protection.
+          9. Preserve admin privileges.
+          10. Inspect existing code first and make the smallest safe production-quality changes.
+          11. Run the relevant TypeScript check.
 
-          Actually edit api/src/index.ts and verify it.
-
-          At the end, print a short summary of what you changed and the validation command/result.
+          Actually edit api/src/index.ts. Do not merely describe changes.
           PROMPT
 
           timeout 720s opencode run \
@@ -113,11 +104,17 @@ jobs:
             --print-logs \
             "$(cat /tmp/prompt.txt)"
 
-      - name: Validate agent scope
+      - name: Clean generated files and validate scope
         run: |
           set -euo pipefail
-          rm -f opencode.json
 
+          rm -f opencode.json
+          rm -f api/tsconfig.tsbuildinfo
+          rm -f web/tsconfig.tsbuildinfo
+
+          git restore --worktree -- api/package-lock.json web/package-lock.json 2>/dev/null || true
+
+          echo "Agent changes:"
           git status --short
 
           bad="$(git status --porcelain | awk '{print $2}' | grep -v '^api/src/index.ts$' || true)"
@@ -164,9 +161,8 @@ jobs:
           opencode --version
 
       - name: Configure OpenCode
-        env:
-          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
         run: |
+          set -euo pipefail
           cat > opencode.json <<'JSON'
           {
             "$schema": "https://opencode.ai/config.json",
@@ -203,41 +199,32 @@ jobs:
           cat > /tmp/prompt.txt <<'PROMPT'
           You are Agent 2 for the BookingLab production repository.
 
-          Your ONLY allowed source file is:
+          ONLY modify:
           web/app/dashboard/page.tsx
 
-          Do not modify any other source file.
-          Do not create new source files.
-          Do not modify API files.
-          Do not modify migrations.
-          Do not modify package files.
-          Do not modify workflow files.
-          Do not commit or push anything.
+          Do not modify any other file.
+          Do not create files.
+          Do not commit or push.
 
           TASK:
           Bring the staff dashboard reservation details/edit UI into consistency with the current BookingLab reservation model and API.
 
           Requirements:
-          1. Inspect the existing dashboard code and API usage before changing anything.
-          2. Preserve the existing staff authentication/session flow.
-          3. Preserve role and permission behavior.
-          4. Staff users must only see/edit data that the API already authorizes.
-          5. Reservation details must correctly display the patient address when present.
-          6. Reservation edit UI must correctly load and save:
-             patient_name, age, gender, phone, address, preferred_at.
-          7. Preserve the distinction between original selected tests and extra tests.
-          8. Display original test metadata when available without inventing values.
-          9. Preserve existing reservation status behavior.
-          10. Preserve the special permission allowing an assigned DOCTOR/REP to edit a CONFIRMED reservation when the API authorizes it.
-          11. Do not introduce client-side permission bypasses.
-          12. Do not alter commission calculations.
-          13. Keep the existing responsive/mobile UI behavior.
-          14. Make the smallest safe production-quality changes.
-          15. Run the relevant TypeScript check before finishing.
+          1. Preserve staff authentication, sessions, roles and permissions.
+          2. Staff must only edit data authorized by the API.
+          3. Reservation details must display address when present.
+          4. Edit must correctly load/save:
+          patient_name, age, gender, phone, address, preferred_at.
+          5. Preserve original selected tests separately from extra tests.
+          6. Preserve original test metadata when already available. Do not invent data.
+          7. Preserve all existing status behavior.
+          8. Preserve the authorized assigned DOCTOR/REP CONFIRMED-edit permission.
+          9. Do not change commissions.
+          10. Preserve responsive/mobile behavior.
+          11. Make the smallest safe production-quality changes.
+          12. Run the relevant TypeScript check.
 
-          Actually edit web/app/dashboard/page.tsx and verify it.
-
-          At the end, print a short summary and validation result.
+          Actually edit web/app/dashboard/page.tsx. Do not merely describe changes.
           PROMPT
 
           timeout 720s opencode run \
@@ -245,11 +232,17 @@ jobs:
             --print-logs \
             "$(cat /tmp/prompt.txt)"
 
-      - name: Validate agent scope
+      - name: Clean generated files and validate scope
         run: |
           set -euo pipefail
-          rm -f opencode.json
 
+          rm -f opencode.json
+          rm -f web/tsconfig.tsbuildinfo
+          rm -f api/tsconfig.tsbuildinfo
+
+          git restore --worktree -- api/package-lock.json web/package-lock.json 2>/dev/null || true
+
+          echo "Agent changes:"
           git status --short
 
           bad="$(git status --porcelain | awk '{print $2}' | grep -v '^web/app/dashboard/page.tsx$' || true)"
@@ -296,9 +289,8 @@ jobs:
           opencode --version
 
       - name: Configure OpenCode
-        env:
-          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
         run: |
+          set -euo pipefail
           cat > opencode.json <<'JSON'
           {
             "$schema": "https://opencode.ai/config.json",
@@ -335,42 +327,35 @@ jobs:
           cat > /tmp/prompt.txt <<'PROMPT'
           You are Agent 3 for the BookingLab production repository.
 
-          Your ONLY allowed source file is:
+          ONLY modify:
           web/app/admin/page.tsx
 
-          Do not modify any other source file.
-          Do not create new source files.
-          Do not modify API files.
-          Do not modify migrations.
-          Do not modify package files.
-          Do not modify workflow files.
-          Do not commit or push anything.
+          Do not modify any other file.
+          Do not create files.
+          Do not commit or push.
 
           TASK:
           Bring the admin reservation details/edit UI into consistency with the current BookingLab reservation model and API.
 
           Requirements:
-          1. Inspect the existing admin page and API usage before changing anything.
-          2. Preserve admin authentication and authorization.
-          3. Admin retains full reservation editing privileges subject to finalized-record protection.
-          4. Reservation details must correctly display patient address when present.
-          5. Reservation edit UI must correctly load and save:
-             patient_name, age, gender, phone, address, preferred_at.
-          6. Preserve original_total. The UI must not suggest that editing patient information recalculates historical original pricing.
-          7. Preserve the distinction between original selected tests and extra tests.
-          8. Display original test metadata when available without inventing values.
-          9. Preserve reservation status workflow:
-             PENDING -> ASSIGNED -> ACCEPTED -> CONFIRMED -> DONE
-          10. There is no CANCELLED status.
-          11. Preserve assignment behavior and existing role restrictions.
-          12. Do not change commission calculations.
-          13. Preserve responsive/mobile behavior.
-          14. Make the smallest safe production-quality changes.
-          15. Run the relevant TypeScript check before finishing.
+          1. Preserve admin authentication and authorization.
+          2. Admin retains existing reservation editing privileges subject to finalized-record protection.
+          3. Reservation details must display address when present.
+          4. Edit must correctly load/save:
+          patient_name, age, gender, phone, address, preferred_at.
+          5. Preserve original_total. Historical original pricing must not be recalculated by patient-data editing.
+          6. Preserve original selected tests separately from extra tests.
+          7. Display existing original test metadata without inventing values.
+          8. Preserve status workflow exactly:
+          PENDING -> ASSIGNED -> ACCEPTED -> CONFIRMED -> DONE
+          9. There is NO CANCELLED status.
+          10. Preserve assignment and role restrictions.
+          11. Do not change commissions.
+          12. Preserve responsive/mobile behavior.
+          13. Make the smallest safe production-quality changes.
+          14. Run the relevant TypeScript check.
 
-          Actually edit web/app/admin/page.tsx and verify it.
-
-          At the end, print a short summary and validation result.
+          Actually edit web/app/admin/page.tsx. Do not merely describe changes.
           PROMPT
 
           timeout 720s opencode run \
@@ -378,11 +363,17 @@ jobs:
             --print-logs \
             "$(cat /tmp/prompt.txt)"
 
-      - name: Validate agent scope
+      - name: Clean generated files and validate scope
         run: |
           set -euo pipefail
-          rm -f opencode.json
 
+          rm -f opencode.json
+          rm -f web/tsconfig.tsbuildinfo
+          rm -f api/tsconfig.tsbuildinfo
+
+          git restore --worktree -- api/package-lock.json web/package-lock.json 2>/dev/null || true
+
+          echo "Agent changes:"
           git status --short
 
           bad="$(git status --porcelain | awk '{print $2}' | grep -v '^web/app/admin/page.tsx$' || true)"
@@ -429,9 +420,8 @@ jobs:
           opencode --version
 
       - name: Configure OpenCode
-        env:
-          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
         run: |
+          set -euo pipefail
           cat > opencode.json <<'JSON'
           {
             "$schema": "https://opencode.ai/config.json",
@@ -468,40 +458,33 @@ jobs:
           cat > /tmp/prompt.txt <<'PROMPT'
           You are Agent 4 for the BookingLab production repository.
 
-          Your ONLY allowed source file is:
+          ONLY modify:
           web/app/page.tsx
 
-          Do not modify any other source file.
-          Do not create new source files.
-          Do not modify API files.
-          Do not modify migrations.
-          Do not modify package files.
-          Do not modify workflow files.
-          Do not commit or push anything.
+          Do not modify any other file.
+          Do not create files.
+          Do not commit or push.
 
           TASK:
           Bring the public booking flow into consistency with the current BookingLab reservation test model.
 
           Requirements:
-          1. Inspect the existing public booking page and API usage before changing anything.
-          2. Preserve the current test search behavior and do not preload the complete test catalog.
-          3. Preserve the existing cart behavior: a test can only be added once to a reservation.
-          4. Preserve current pricing behavior.
-          5. When creating a reservation, preserve the selected original test metadata needed by the reservation details/edit flow, including test code/name/price when those values already exist in the selected test data.
-          6. Do not invent test prices or metadata.
-          7. Preserve the distinction between original selected tests and extra tests.
-          8. Preserve patient fields already collected by the public booking flow, including:
-             patient_name, age, gender, phone, address, preferred_at.
-          9. Do not add authentication requirements to public booking.
-          10. Preserve duplicate-pending reservation behavior.
-          11. Preserve all existing UI/UX and mobile responsiveness unless a change is required for the task.
-          12. Do not modify API files.
-          13. Make the smallest safe production-quality changes.
-          14. Run the relevant TypeScript check before finishing.
+          1. Preserve test search behavior. Do not preload the complete test catalog.
+          2. Preserve cart behavior: each test can only be added once.
+          3. Preserve current pricing behavior.
+          4. When creating a reservation, preserve selected original test metadata already available in selected test data, including code/name/price.
+          5. Do not invent prices or metadata.
+          6. Preserve original selected tests separately from extra tests.
+          7. Preserve patient fields:
+          patient_name, age, gender, phone, address, preferred_at.
+          8. Public booking remains unauthenticated.
+          9. Preserve duplicate-pending reservation behavior.
+          10. Preserve existing UI/UX and mobile responsiveness.
+          11. Do not modify API files.
+          12. Make the smallest safe production-quality changes.
+          13. Run the relevant TypeScript check.
 
-          Actually edit web/app/page.tsx and verify it.
-
-          At the end, print a short summary and validation result.
+          Actually edit web/app/page.tsx. Do not merely describe changes.
           PROMPT
 
           timeout 720s opencode run \
@@ -509,11 +492,17 @@ jobs:
             --print-logs \
             "$(cat /tmp/prompt.txt)"
 
-      - name: Validate agent scope
+      - name: Clean generated files and validate scope
         run: |
           set -euo pipefail
-          rm -f opencode.json
 
+          rm -f opencode.json
+          rm -f web/tsconfig.tsbuildinfo
+          rm -f api/tsconfig.tsbuildinfo
+
+          git restore --worktree -- api/package-lock.json web/package-lock.json 2>/dev/null || true
+
+          echo "Agent changes:"
           git status --short
 
           bad="$(git status --porcelain | awk '{print $2}' | grep -v '^web/app/page.tsx$' || true)"
@@ -596,6 +585,7 @@ jobs:
           git apply /tmp/admin/admin-agent.patch
           git apply /tmp/public/public-agent.patch
 
+          echo "=== Integrated changes ==="
           git diff --stat
           git status --short
 
@@ -617,6 +607,15 @@ jobs:
           set -euo pipefail
           npm run build
 
+      - name: Clean generated files
+        run: |
+          set -euo pipefail
+
+          rm -f api/tsconfig.tsbuildinfo
+          rm -f web/tsconfig.tsbuildinfo
+
+          git restore --worktree -- api/package-lock.json web/package-lock.json 2>/dev/null || true
+
       - name: Final scope check
         run: |
           set -euo pipefail
@@ -628,6 +627,8 @@ jobs:
             echo "$bad"
             exit 1
           fi
+
+          echo "Final scope OK."
 
       - name: Commit integrated changes
         run: |
