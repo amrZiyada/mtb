@@ -15,15 +15,15 @@ jobs:
       fail-fast: false
       max-parallel: 2
       matrix:
-        include:
+              include:
           - agent: "1-Nemotron"
-            model: "nemotron-3-ultra-550b-a55b"
+            model: "nvidia/nemotron-3-ultra-550b-a55b"
             task: "Inspect the API architecture, especially api/src/index.ts and the database/migration structure."
 
           - agent: "2-DeepSeek"
-            model: "deepseek-v4-flash-0731"
+            model: "deepseek-ai/deepseek-v4-flash-0731"
             task: "Inspect the frontend architecture, especially web/app and the Next.js structure."
-
+            
     timeout-minutes: 15
 
     steps:
@@ -41,7 +41,32 @@ jobs:
         run: |
           npm install -g opencode-ai@1.18.31
           opencode --version
+          
+      - name: Test NVIDIA model endpoint
+        env:
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+          MODEL: ${{ matrix.model }}
+        run: |
+          echo "Testing NVIDIA model: $MODEL"
 
+          curl -sS \
+            -w "\nHTTP_STATUS=%{http_code}\n" \
+            -X POST \
+            "https://integrate.api.nvidia.com/v1/chat/completions" \
+            -H "Authorization: Bearer $NVIDIA_API_KEY" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"model\": \"$MODEL\",
+              \"messages\": [
+                {
+                  \"role\": \"user\",
+                  \"content\": \"Reply with exactly: NVIDIA MODEL TEST OK\"
+                }
+              ],
+              \"max_tokens\": 20,
+              \"stream\": false
+            }"
+            
       - name: Create OpenCode configuration
         run: |
           cat > opencode.json <<'EOF'
@@ -90,7 +115,7 @@ jobs:
           echo "========================================"
 
           opencode run \
-            --model "nvidia/$MODEL" \
+            --model "$OPENCODE_MODEL"
             --print-logs \
             "You are $AGENT in a MULTI-AGENT CLOUD TEST for the BookingLab repository.
 
