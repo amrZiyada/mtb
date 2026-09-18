@@ -1,0 +1,340 @@
+name: BookingLab Review Agent
+
+on:
+  pull_request:
+    types:
+      - opened
+      - synchronize
+      - reopened
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  review:
+    name: BookingLab Review Agent
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout PR
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+
+      - name: Show PR context
+        run: |
+          echo "========================================"
+          echo "BOOKINGLAB REVIEW AGENT"
+          echo "========================================"
+
+          echo "PR:"
+          echo "#${{ github.event.pull_request.number }}"
+
+          echo
+          echo "Title:"
+          echo "${{ github.event.pull_request.title }}"
+
+          echo
+          echo "Base:"
+          echo "${{ github.event.pull_request.base.ref }}"
+
+          echo
+          echo "Head:"
+          echo "${{ github.event.pull_request.head.ref }}"
+
+          echo
+          echo "Head SHA:"
+          echo "${{ github.event.pull_request.head.sha }}"
+
+          echo
+          echo "========================================"
+
+      - name: Install API dependencies
+        working-directory: api
+        run: |
+          if [ -f package-lock.json ]; then
+            npm ci
+          else
+            npm install
+          fi
+
+      - name: Install Web dependencies
+        working-directory: web
+        run: |
+          if [ -f package-lock.json ]; then
+            npm ci
+          else
+            npm install
+          fi
+
+      - name: Validate API TypeScript
+        working-directory: api
+        run: |
+          echo "Running API TypeScript validation..."
+          npm exec --no -- tsc --noEmit
+
+      - name: Validate Web TypeScript
+        working-directory: web
+        run: |
+          echo "Running Web TypeScript validation..."
+          npm exec --no -- tsc --noEmit
+
+      - name: Generate PR diff
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "========================================"
+          echo "GENERATING PR DIFF"
+          echo "========================================"
+
+          gh pr diff "${{ github.event.pull_request.number }}" \
+            --repo "${{ github.repository }}" \
+            > /tmp/pr.diff
+
+          echo
+          echo "Changed files:"
+          gh pr diff "${{ github.event.pull_request.number }}" \
+            --repo "${{ github.repository }}" \
+            --name-only
+
+          echo
+          echo "Diff size:"
+          wc -l /tmp/pr.diff
+
+      - name: Install OpenCode
+        run: |
+          npm install -g opencode-ai@1.18.31
+          opencode --version
+
+      - name: Create review task
+        run: |
+          cat > /tmp/review-task.md <<'EOF'
+          You are the BookingLab independent code review agent.
+
+          Your role is REVIEW ONLY.
+
+          You MUST NOT:
+          - modify any source file
+          - modify package files
+          - modify configuration
+          - modify migrations
+          - commit
+          - push
+          - create another branch
+          - deploy
+          - merge the pull request
+
+          You are reviewing an automated multi-agent integration PR.
+
+          Repository:
+          BookingLab
+
+          Pull request:
+          #${{ github.event.pull_request.number }}
+
+          The PR was produced by:
+          - Agent 1: Nemotron 3 Ultra 550B — API
+          - Agent 2: GLM-5.3 — Dashboard
+          - Agent 3: Nemotron 3 Ultra 550B — Admin
+          - Agent 4: GLM-5.3 — Public
+
+          Review the actual repository and the supplied PR diff.
+
+          IMPORTANT BOOKINGLAB RULES:
+
+          1. Reservation statuses are EXACTLY:
+             PENDING
+             ASSIGNED
+             ACCEPTED
+             CONFIRMED
+             DONE
+
+             There is NO CANCELLED status.
+
+          2. Staff roles:
+             DOCTOR
+             REP
+             SALESMAN
+
+          3. Public reservations are created as PUBLIC and initially unassigned.
+
+          4. Admin may assign reservations to DOCTOR or REP.
+             SALESMAN assignment is not allowed.
+
+          5. Staff editing:
+             - Own PENDING reservations are editable according to the configured
+               pending-edit time limit.
+             - Assigned DOCTOR/REP may edit CONFIRMED reservations only when
+               the appropriate permission exists.
+             - Finalized reservations must remain protected.
+
+          6. Original selected-test pricing must remain stable.
+             Editing patient information or the original selected tests must
+             not accidentally overwrite original_total.
+
+          7. Extra tests are separate from the original reservation tests.
+
+          8. Commission rules must not be changed accidentally.
+
+          9. Authentication and authorization boundaries must remain intact.
+
+          10. Admin endpoints must not accidentally become available to normal
+              USER sessions.
+
+          REVIEW OBJECTIVES:
+
+          A. Identify actual bugs.
+          B. Identify regressions.
+          C. Identify security/authentication issues.
+          D. Identify BookingLab workflow violations.
+          E. Identify TypeScript/API consistency problems.
+          F. Identify accidental behavior changes.
+          G. Ignore harmless isolation-test comments.
+          H. Do not complain about formatting unless it creates a real problem.
+
+          Classify findings as:
+
+          CRITICAL
+          HIGH
+          MEDIUM
+          LOW
+          INFO
+
+          For every real finding provide:
+
+          - Severity
+          - File
+          - Approximate location
+          - Problem
+          - Why it matters
+          - Concrete fix recommendation
+
+          Do NOT invent issues.
+
+          If there are no meaningful problems, explicitly say:
+
+          NO ACTIONABLE FINDINGS
+
+          At the end provide:
+
+          REVIEW RESULT:
+          PASS
+
+          or
+
+          REVIEW RESULT:
+          CHANGES REQUESTED
+
+          Base the result only on evidence from the repository and PR diff.
+          EOF
+
+      - name: Run OpenCode review
+        env:
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+          NVIDIA_BASE_URL: https://integrate.api.nvidia.com/v1
+        run: |
+          cat > opencode.json <<'EOF'
+          {
+            "$schema": "https://opencode.ai/config.json",
+            "provider": {
+              "nvidia": {
+                "npm": "@ai-sdk/openai-compatible",
+                "name": "NVIDIA NIM",
+                "options": {
+                  "baseURL": "{env:NVIDIA_BASE_URL}",
+                  "apiKey": "{env:NVIDIA_API_KEY}"
+                },
+                "models": {
+                  "z-ai/glm-5.3": {
+                    "name": "GLM-5.3",
+                    "limit": {
+                      "context": 1000000,
+                      "output": 32768
+                    }
+                  }
+                }
+              }
+            }
+          }
+          EOF
+
+          echo "========================================"
+          echo "STARTING INDEPENDENT REVIEW"
+          echo "MODEL: GLM-5.3"
+          echo "========================================"
+
+          REVIEW_PROMPT="$(cat /tmp/review-task.md)"
+
+          REVIEW_PROMPT="$REVIEW_PROMPT
+
+          Here is the actual PR diff:
+
+          $(cat /tmp/pr.diff)"
+
+          opencode run \
+            --model "nvidia/z-ai/glm-5.3" \
+            --print-logs \
+            "$REVIEW_PROMPT" \
+            > /tmp/review.txt 2>&1
+
+          echo
+          echo "========================================"
+          echo "REVIEW OUTPUT"
+          echo "========================================"
+
+          cat /tmp/review.txt
+
+      - name: Publish review to PR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "========================================"
+          echo "PUBLISHING REVIEW"
+          echo "========================================"
+
+          cat > /tmp/pr-review.md <<EOF
+          ## 🤖 BookingLab Independent Review
+
+          **Reviewer model:** GLM-5.3  
+          **PR:** #${{ github.event.pull_request.number }}  
+          **Review type:** Independent automated review
+
+          ### Validation
+
+          - API TypeScript: ✅
+          - Web TypeScript: ✅
+          - PR diff inspected: ✅
+          - BookingLab workflow rules checked: ✅
+          - Authentication/authorization boundaries checked: ✅
+
+          ### AI Review
+
+          $(cat /tmp/review.txt)
+
+          ---
+
+          *This review was generated automatically. Human review remains required before merge.*
+          EOF
+
+          gh pr comment \
+            "${{ github.event.pull_request.number }}" \
+            --repo "${{ github.repository }}" \
+            --body-file /tmp/pr-review.md
+
+          echo
+          echo "Review published successfully."
+
+      - name: Final review status
+        run: |
+          echo "========================================"
+          echo "BOOKINGLAB REVIEW AGENT COMPLETE"
+          echo "========================================"
