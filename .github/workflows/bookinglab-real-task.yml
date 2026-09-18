@@ -99,7 +99,7 @@ jobs:
                 -o /tmp/nvidia-preflight.json \
                 -w "%{http_code}" \
                 "$NVIDIA_BASE_URL/chat/completions" \
-                -H "Authorization: ******" \
+                -H "Authorization: Bearer $NVIDIA_API_KEY" \
                 -H "Content-Type: application/json" \
                 -d "{
                   \"model\":\"$NVIDIA_MODEL_ID\",
@@ -337,7 +337,7 @@ jobs:
                 -o /tmp/nvidia-preflight.json \
                 -w "%{http_code}" \
                 "$NVIDIA_BASE_URL/chat/completions" \
-                -H "Authorization: ******" \
+                -H "Authorization: Bearer $NVIDIA_API_KEY" \
                 -H "Content-Type: application/json" \
                 -d "{
                   \"model\":\"$NVIDIA_MODEL_ID\",
@@ -579,7 +579,7 @@ jobs:
                 -o /tmp/nvidia-preflight.json \
                 -w "%{http_code}" \
                 "$NVIDIA_BASE_URL/chat/completions" \
-                -H "Authorization: ******" \
+                -H "Authorization: Bearer $NVIDIA_API_KEY" \
                 -H "Content-Type: application/json" \
                 -d "{
                   \"model\":\"$NVIDIA_MODEL_ID\",
@@ -812,7 +812,7 @@ jobs:
                 -o /tmp/nvidia-preflight.json \
                 -w "%{http_code}" \
                 "$NVIDIA_BASE_URL/chat/completions" \
-                -H "Authorization: ******" \
+                -H "Authorization: Bearer $NVIDIA_API_KEY" \
                 -H "Content-Type: application/json" \
                 -d "{
                   \"model\":\"$NVIDIA_MODEL_ID\",
