@@ -5,7 +5,6 @@ on:
 
 permissions:
   contents: read
-  actions: write
 
 jobs:
   agent-api:
@@ -31,8 +30,6 @@ jobs:
         run: npm install -g opencode-ai@1.18.31
 
       - name: Configure NVIDIA
-        env:
-          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
         run: |
           echo "NVIDIA_BASE_URL=https://integrate.api.nvidia.com/v1" >> "$GITHUB_ENV"
 
@@ -53,8 +50,6 @@ You are Agent 1 for the BookingLab production project.
 You are working ONLY on:
 api/src/index.ts
 
-Do not modify any other tracked source file.
-
 REAL TASK:
 Audit and improve the BookingLab patient-address persistence flow.
 
@@ -69,15 +64,13 @@ Requirements:
 6. Do not change commission calculations.
 7. Do not change original_total behavior.
 8. Do not change reservation ownership/editing permissions.
-9. Preserve the production booking data model and existing API contracts.
+9. Preserve existing API contracts and database behavior.
 10. Make the smallest safe production-quality change necessary.
 11. Inspect the current implementation before changing anything.
-12. If the current implementation already satisfies all requirements, make only a minimal harmless improvement related to validation/clarity; do not refactor unrelated code.
+12. If the current implementation already satisfies the requirements, do not make unrelated changes.
 
 Validation:
-- Run:
-  cd api && npm exec --no -- tsc --noEmit
-- Review the diff carefully.
+cd api && npm exec --no -- tsc --noEmit
 
 Git rules:
 - Modify ONLY api/src/index.ts.
@@ -90,22 +83,22 @@ Git rules:
 PROMPT
 )"
 
-      - name: Verify assigned file only
+      - name: Verify assigned file
         run: |
-          git status --short
           git diff --name-only HEAD~1 HEAD
-
-          test "$(git diff --name-only HEAD~1 HEAD | wc -l)" -eq 1
           test "$(git diff --name-only HEAD~1 HEAD)" = "api/src/index.ts"
+
+      - name: Create patch
+        run: |
+          git format-patch -1 HEAD --stdout > agent.patch
+          test -s agent.patch
 
       - name: Upload patch
         uses: actions/upload-artifact@v4
         with:
           name: bookinglab-real-api-nemotron
-          path: |
-            api/src/index.ts
-            ${{ github.workspace }}/../*.patch
-          if-no-files-found: ignore
+          path: agent.patch
+
 
   agent-dashboard:
     name: Agent 2 - GLM Dashboard
@@ -168,9 +161,7 @@ Requirements:
 12. Make the smallest safe production-quality change.
 
 Validation:
-- Run:
-  cd web && npm exec --no -- tsc --noEmit
-- Review the diff.
+cd web && npm exec --no -- tsc --noEmit
 
 Git rules:
 - Modify ONLY web/app/dashboard/page.tsx.
@@ -183,19 +174,22 @@ Git rules:
 PROMPT
 )"
 
-      - name: Verify assigned file only
+      - name: Verify assigned file
         run: |
-          git status --short
           git diff --name-only HEAD~1 HEAD
-
-          test "$(git diff --name-only HEAD~1 HEAD | wc -l)" -eq 1
           test "$(git diff --name-only HEAD~1 HEAD)" = "web/app/dashboard/page.tsx"
+
+      - name: Create patch
+        run: |
+          git format-patch -1 HEAD --stdout > agent.patch
+          test -s agent.patch
 
       - name: Upload patch
         uses: actions/upload-artifact@v4
         with:
           name: bookinglab-real-dashboard-glm
-          path: web/app/dashboard/page.tsx
+          path: agent.patch
+
 
   agent-admin:
     name: Agent 3 - Nemotron Admin
@@ -251,7 +245,7 @@ Requirements:
 5. Do not change status workflow:
    PENDING -> ASSIGNED -> ACCEPTED -> CONFIRMED -> DONE
 6. No CANCELLED status.
-7. Do not change authentication/authorization.
+7. Do not change authentication or authorization.
 8. Do not change commissions.
 9. Do not change test pricing.
 10. Do not change original_total behavior.
@@ -261,9 +255,7 @@ Requirements:
 14. Make the smallest safe production-quality change.
 
 Validation:
-- Run:
-  cd web && npm exec --no -- tsc --noEmit
-- Review the diff.
+cd web && npm exec --no -- tsc --noEmit
 
 Git rules:
 - Modify ONLY web/app/admin/page.tsx.
@@ -276,19 +268,22 @@ Git rules:
 PROMPT
 )"
 
-      - name: Verify assigned file only
+      - name: Verify assigned file
         run: |
-          git status --short
           git diff --name-only HEAD~1 HEAD
-
-          test "$(git diff --name-only HEAD~1 HEAD | wc -l)" -eq 1
           test "$(git diff --name-only HEAD~1 HEAD)" = "web/app/admin/page.tsx"
+
+      - name: Create patch
+        run: |
+          git format-patch -1 HEAD --stdout > agent.patch
+          test -s agent.patch
 
       - name: Upload patch
         uses: actions/upload-artifact@v4
         with:
           name: bookinglab-real-admin-nemotron
-          path: web/app/admin/page.tsx
+          path: agent.patch
+
 
   agent-public:
     name: Agent 4 - GLM Public
@@ -350,12 +345,10 @@ Requirements:
 11. Preserve the existing responsive/mobile UI.
 12. Inspect the current implementation first.
 13. Make the smallest safe production-quality change.
-14. If address handling is already correct, do not refactor it; make only a minimal safe improvement if genuinely necessary.
+14. If address handling is already correct, do not refactor it.
 
 Validation:
-- Run:
-  cd web && npm exec --no -- tsc --noEmit
-- Review the diff.
+cd web && npm exec --no -- tsc --noEmit
 
 Git rules:
 - Modify ONLY web/app/page.tsx.
@@ -368,16 +361,18 @@ Git rules:
 PROMPT
 )"
 
-      - name: Verify assigned file only
+      - name: Verify assigned file
         run: |
-          git status --short
           git diff --name-only HEAD~1 HEAD
-
-          test "$(git diff --name-only HEAD~1 HEAD | wc -l)" -eq 1
           test "$(git diff --name-only HEAD~1 HEAD)" = "web/app/page.tsx"
+
+      - name: Create patch
+        run: |
+          git format-patch -1 HEAD --stdout > agent.patch
+          test -s agent.patch
 
       - name: Upload patch
         uses: actions/upload-artifact@v4
         with:
           name: bookinglab-real-public-glm
-          path: web/app/page.tsx
+          path: agent.patch
