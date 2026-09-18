@@ -1,4 +1,4 @@
-name: BookingLab Real Task - 4 Cloud Agents v3.2
+name: BookingLab Real Task - 4 Cloud Agents v3.3
 
 on:
   workflow_dispatch:
@@ -20,58 +20,53 @@ jobs:
     env:
       NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
       NVIDIA_BASE_URL: https://integrate.api.nvidia.com/v1
+
       AGENT_PROMPT: |
         You are Agent 1 for the BookingLab project.
 
         Repository:
         amrZiyada/mtb
 
-        Assigned file:
+        ASSIGNED FILE:
         api/src/index.ts
 
         TASK:
-        Audit the current BookingLab API implementation for the patient address flow.
+        Audit the existing BookingLab API patient-address flow.
 
-        The patient address must:
-        1. Be accepted from public booking creation.
-        2. Be stored on the reservation.
-        3. Be returned by the API.
-        4. Be preserved when an authorized staff member edits a reservation.
-        5. Not alter original_total during reservation editing.
+        Verify that:
+        1. Public booking accepts patient address.
+        2. Address is stored.
+        3. Address is returned.
+        4. Authorized reservation editing preserves address.
+        5. Editing does not change original_total.
 
-        IMPORTANT BOOKINGLAB RULES:
-        - Reservation statuses are EXACTLY:
+        IMPORTANT RULES:
+        - Statuses are EXACTLY:
           PENDING -> ASSIGNED -> ACCEPTED -> CONFIRMED -> DONE
         - There is NO CANCELLED status.
-        - Do not change status behavior.
-        - Do not change authentication or authorization boundaries.
-        - Do not change roles or permissions.
-        - Do not change commission calculations.
-        - Do not change assignment rules.
-        - Do not change pricing behavior.
+        - Do not change authentication.
+        - Do not change authorization.
+        - Do not change roles.
+        - Do not change permissions.
+        - Do not change commissions.
+        - Do not change pricing.
+        - Do not change assignment.
         - Do not change original_total semantics.
         - Do not modify unrelated files.
-        - Do not refactor unrelated code.
 
-        FIRST inspect the existing implementation carefully.
+        FIRST inspect the existing code.
 
-        If the current implementation already satisfies the task:
-        - Make NO source-code changes.
-        - Do NOT create a commit.
-        - Finish successfully.
+        If the current implementation is already correct:
+        make NO changes and finish immediately.
 
         If a real defect exists:
-        - Make the smallest safe change necessary.
-        - Modify ONLY api/src/index.ts.
-        - Do not create speculative improvements.
-        - Do not rewrite the file.
+        make only the smallest necessary change in api/src/index.ts.
 
-        IMPORTANT:
-        If you encounter an existing TypeScript error in an unrelated file,
-        do NOT modify that unrelated file.
-        Only work on api/src/index.ts.
+        Do NOT run tests, builds, or TypeScript validation yourself.
+        Do NOT attempt to repair unrelated TypeScript errors.
+        Do NOT modify any file other than api/src/index.ts.
 
-        Ensure the assigned file is valid TypeScript.
+        Stop immediately after the required source change is complete.
 
     steps:
       - name: Checkout repository
@@ -99,11 +94,11 @@ jobs:
           echo "Baseline: $BASE_SHA"
 
       - name: Run Nemotron
-        timeout-minutes: 11
+        timeout-minutes: 9
         run: |
           set -euo pipefail
 
-          timeout 10m opencode run \
+          timeout --foreground 8m opencode run \
             --model "nvidia/nvidia/nemotron-3-ultra-550b-a55b" \
             --print-logs \
             "$AGENT_PROMPT"
@@ -115,11 +110,10 @@ jobs:
           set -euo pipefail
           timeout 150s npm exec --no -- tsc --noEmit --incremental false
 
-      - name: Clean generated TypeScript cache
+      - name: Clean generated files
         run: |
           set -euo pipefail
-          find web -name '*.tsbuildinfo' -type f -delete 2>/dev/null || true
-          find api -name '*.tsbuildinfo' -type f -delete 2>/dev/null || true
+          find . -name '*.tsbuildinfo' -type f -delete 2>/dev/null || true
 
       - name: Verify scope and create artifact
         timeout-minutes: 2
@@ -132,18 +126,10 @@ jobs:
           UNTRACKED_CHANGED="$(git ls-files --others --exclude-standard)"
 
           echo "Tracked changes:"
-          if [ -n "$TRACKED_CHANGED" ]; then
-            printf '%s\n' "$TRACKED_CHANGED"
-          else
-            echo "NONE"
-          fi
+          printf '%s\n' "$TRACKED_CHANGED"
 
           echo "Untracked files:"
-          if [ -n "$UNTRACKED_CHANGED" ]; then
-            printf '%s\n' "$UNTRACKED_CHANGED"
-          else
-            echo "NONE"
-          fi
+          printf '%s\n' "$UNTRACKED_CHANGED"
 
           BAD_TRACKED="$(
             printf '%s\n' "$TRACKED_CHANGED" |
@@ -152,13 +138,13 @@ jobs:
           )"
 
           if [ -n "$BAD_TRACKED" ]; then
-            echo "ERROR: Agent changed files outside assigned scope:"
+            echo "ERROR: Changes outside assigned file:"
             printf '%s\n' "$BAD_TRACKED"
             exit 1
           fi
 
           if [ -n "$UNTRACKED_CHANGED" ]; then
-            echo "ERROR: Agent created untracked files:"
+            echo "ERROR: Unexpected untracked files:"
             printf '%s\n' "$UNTRACKED_CHANGED"
             exit 1
           fi
@@ -185,65 +171,62 @@ jobs:
   agent-dashboard:
     name: Agent 2 - GLM Dashboard
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 18
 
     env:
       NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
       NVIDIA_BASE_URL: https://integrate.api.nvidia.com/v1
+
       AGENT_PROMPT: |
         You are Agent 2 for the BookingLab project.
 
         Repository:
         amrZiyada/mtb
 
-        Assigned file:
+        ASSIGNED FILE:
         web/app/dashboard/page.tsx
 
         TASK:
-        Audit the staff dashboard reservation editing flow for patient address handling.
+        Audit the staff dashboard reservation editing flow for patient address.
 
-        The reservation edit form must:
-        1. Load the existing reservation address.
-        2. Display it in the edit form.
-        3. Allow editing it when the existing permission rules allow editing.
-        4. Send the current address when saving.
-        5. Preserve all existing BookingLab workflow rules.
+        Verify that:
+        1. Existing address is loaded into the edit form.
+        2. Address is displayed.
+        3. Address remains editable under existing permissions.
+        4. Current address is sent when saving.
+        5. Existing workflow and authorization remain unchanged.
 
-        IMPORTANT BOOKINGLAB RULES:
-        - Reservation statuses are EXACTLY:
+        IMPORTANT RULES:
+        - Statuses are EXACTLY:
           PENDING -> ASSIGNED -> ACCEPTED -> CONFIRMED -> DONE
         - There is NO CANCELLED status.
-        - Staff edit permissions must remain unchanged.
-        - Staff must not gain unauthorized edit capabilities.
-        - Assigned DOCTOR/REP confirmed-edit permission must remain intact if already implemented.
         - Do not change authentication.
         - Do not change roles.
+        - Do not change permissions.
         - Do not change commissions.
         - Do not change pricing.
         - Do not change original_total.
         - Do not change assignment behavior.
         - Do not modify unrelated files.
-        - Do not refactor unrelated UI.
+        - Assigned DOCTOR/REP confirmed-edit behavior must remain intact.
 
-        FIRST inspect the existing implementation carefully.
+        FIRST inspect the existing implementation.
 
-        If the current implementation already satisfies the task:
-        - Make NO source-code changes.
-        - Do NOT create a commit.
-        - Finish successfully.
+        If already correct:
+        make NO changes and finish immediately.
 
         If a real defect exists:
-        - Make the smallest safe change necessary.
-        - Modify ONLY web/app/dashboard/page.tsx.
-        - Do not create speculative improvements.
-        - Do not rewrite the page.
+        make the smallest necessary change ONLY in:
+        web/app/dashboard/page.tsx
 
-        IMPORTANT:
-        Do not modify web/lib/api.ts, tsconfig files, package files,
-        or any other file to repair an unrelated TypeScript error.
-        If an existing unrelated TypeScript error appears, leave it untouched.
+        Do NOT run tests, builds, or TypeScript validation yourself.
+        Do NOT repair unrelated TypeScript errors.
+        Do NOT modify web/lib/api.ts.
+        Do NOT modify tsconfig files.
+        Do NOT modify package files.
+        Do NOT modify any other file.
 
-        Ensure the assigned file is valid TypeScript/TSX.
+        Stop immediately after the required source change is complete.
 
     steps:
       - name: Checkout repository
@@ -271,11 +254,11 @@ jobs:
           echo "Baseline: $BASE_SHA"
 
       - name: Run GLM
-        timeout-minutes: 13
+        timeout-minutes: 9
         run: |
           set -euo pipefail
 
-          timeout 12m opencode run \
+          timeout --foreground 8m opencode run \
             --model "nvidia/z-ai/glm-5.3" \
             --print-logs \
             "$AGENT_PROMPT"
@@ -288,11 +271,10 @@ jobs:
           rm -f tsconfig.tsbuildinfo
           timeout 150s npm exec --no -- tsc --noEmit --incremental false
 
-      - name: Clean generated TypeScript cache
+      - name: Clean generated files
         run: |
           set -euo pipefail
-          find web -name '*.tsbuildinfo' -type f -delete 2>/dev/null || true
-          find api -name '*.tsbuildinfo' -type f -delete 2>/dev/null || true
+          find . -name '*.tsbuildinfo' -type f -delete 2>/dev/null || true
 
       - name: Verify scope and create artifact
         timeout-minutes: 2
@@ -305,18 +287,10 @@ jobs:
           UNTRACKED_CHANGED="$(git ls-files --others --exclude-standard)"
 
           echo "Tracked changes:"
-          if [ -n "$TRACKED_CHANGED" ]; then
-            printf '%s\n' "$TRACKED_CHANGED"
-          else
-            echo "NONE"
-          fi
+          printf '%s\n' "$TRACKED_CHANGED"
 
           echo "Untracked files:"
-          if [ -n "$UNTRACKED_CHANGED" ]; then
-            printf '%s\n' "$UNTRACKED_CHANGED"
-          else
-            echo "NONE"
-          fi
+          printf '%s\n' "$UNTRACKED_CHANGED"
 
           BAD_TRACKED="$(
             printf '%s\n' "$TRACKED_CHANGED" |
@@ -325,13 +299,13 @@ jobs:
           )"
 
           if [ -n "$BAD_TRACKED" ]; then
-            echo "ERROR: Agent changed files outside assigned scope:"
+            echo "ERROR: Changes outside assigned file:"
             printf '%s\n' "$BAD_TRACKED"
             exit 1
           fi
 
           if [ -n "$UNTRACKED_CHANGED" ]; then
-            echo "ERROR: Agent created untracked files:"
+            echo "ERROR: Unexpected untracked files:"
             printf '%s\n' "$UNTRACKED_CHANGED"
             exit 1
           fi
@@ -358,68 +332,81 @@ jobs:
   agent-admin:
     name: Agent 3 - GLM Admin
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 13
 
     env:
       NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
       NVIDIA_BASE_URL: https://integrate.api.nvidia.com/v1
+
       AGENT_PROMPT: |
         You are Agent 3 for the BookingLab project.
 
         Repository:
         amrZiyada/mtb
 
-        Assigned file:
+        ASSIGNED FILE:
         web/app/admin/page.tsx
 
+        THIS IS A NARROW SOURCE-CODE TASK.
+
         TASK:
-        Audit the admin reservation details/editing flow for patient address handling.
+        Inspect ONLY the admin reservation details/editing flow related to patient address.
 
-        The admin reservation interface must:
-        1. Display the stored patient address when available.
-        2. Preserve the address when editing a reservation.
-        3. Send the current address when an edit is saved, if the existing admin edit flow sends editable patient fields.
-        4. Preserve all existing admin permissions and workflow behavior.
+        Verify whether the admin page:
+        1. Displays the stored patient address.
+        2. Preserves the address when an admin edits a reservation.
+        3. Sends the current address when the existing admin edit payload contains editable patient fields.
 
-        IMPORTANT BOOKINGLAB RULES:
-        - Reservation statuses are EXACTLY:
+        IMPORTANT:
+        The existing BookingLab implementation may already be correct.
+
+        If it is correct:
+        STOP.
+        Make NO changes.
+        Do NOT run tests.
+        Do NOT run TypeScript.
+        Do NOT run a build.
+        Do NOT investigate unrelated errors.
+
+        If a real address defect exists:
+        make ONLY the smallest necessary source change in:
+        web/app/admin/page.tsx
+
+        HARD RULES:
+        - Modify ONLY web/app/admin/page.tsx.
+        - Do NOT modify web/lib/api.ts.
+        - Do NOT modify tsconfig files.
+        - Do NOT modify package.json.
+        - Do NOT modify package-lock files.
+        - Do NOT modify any other source file.
+        - Do NOT create configuration files.
+        - Do NOT create tests.
+        - Do NOT run formatting over the project.
+        - Do NOT run npm commands.
+        - Do NOT run tsc.
+        - Do NOT run npm test.
+        - Do NOT run npm build.
+        - Do NOT repair unrelated TypeScript errors.
+        - Do NOT refactor the page.
+        - Do NOT rewrite JSX structure.
+        - Do NOT introduce new components.
+        - Do NOT make speculative improvements.
+
+        BookingLab rules that MUST NOT change:
+        - Statuses are EXACTLY:
           PENDING -> ASSIGNED -> ACCEPTED -> CONFIRMED -> DONE
         - There is NO CANCELLED status.
-        - Admin can edit reservations according to existing rules.
-        - Do not weaken or alter admin authorization.
-        - Do not change staff permissions.
+        - Do not change authentication.
+        - Do not change authorization.
         - Do not change roles.
-        - Do not change assignment behavior.
+        - Do not change permissions.
+        - Do not change assignment.
         - Do not change commissions.
         - Do not change pricing.
         - Do not change original_total.
-        - Do not change authentication.
-        - Do not modify unrelated files.
-        - Do not refactor unrelated UI.
 
-        VERY IMPORTANT:
-        Inspect the current file before making any change.
-        Keep the existing JSX structure intact unless a real address defect requires a minimal change.
-        Do NOT rewrite the page.
-        Do NOT make broad formatting changes.
-        Do NOT introduce a second component architecture.
-        Do NOT add speculative features.
-
-        If the current implementation already satisfies the task:
-        - Make NO source-code changes.
-        - Do NOT create a commit.
-        - Finish successfully.
-
-        If a real defect exists:
-        - Make the smallest safe change necessary.
-        - Modify ONLY web/app/admin/page.tsx.
-
-        IMPORTANT:
-        Do not modify web/lib/api.ts, tsconfig files, package files,
-        or any other file to repair an unrelated TypeScript error.
-        If an existing unrelated TypeScript error appears, leave it untouched.
-
-        Ensure the assigned file is valid TypeScript/TSX.
+        Work directly and minimally.
+        Once the inspection/required edit is complete, STOP immediately.
 
     steps:
       - name: Checkout repository
@@ -446,31 +433,34 @@ jobs:
           echo "BASE_SHA=$BASE_SHA" >> "$GITHUB_ENV"
           echo "Baseline: $BASE_SHA"
 
-      - name: Run GLM
-        timeout-minutes: 13
+      - name: Run GLM Admin
+        timeout-minutes: 9
         run: |
           set -euo pipefail
 
-          timeout 12m opencode run \
+          timeout --foreground 8m opencode run \
             --model "nvidia/z-ai/glm-5.3" \
             --print-logs \
             "$AGENT_PROMPT"
 
-      - name: Validate Web TypeScript
+      - name: Validate Admin TSX
         working-directory: web
         timeout-minutes: 3
         run: |
           set -euo pipefail
-          rm -f tsconfig.tsbuildinfo
-          timeout 150s npm exec --no -- tsc --noEmit --incremental false
 
-      - name: Clean generated TypeScript cache
+          rm -f tsconfig.tsbuildinfo
+
+          timeout 150s npm exec --no -- tsc \
+            --noEmit \
+            --incremental false
+
+      - name: Clean generated files
         run: |
           set -euo pipefail
-          find web -name '*.tsbuildinfo' -type f -delete 2>/dev/null || true
-          find api -name '*.tsbuildinfo' -type f -delete 2>/dev/null || true
+          find . -name '*.tsbuildinfo' -type f -delete 2>/dev/null || true
 
-      - name: Verify scope and create artifact
+      - name: Verify Admin scope and create artifact
         timeout-minutes: 2
         run: |
           set -euo pipefail
@@ -481,18 +471,10 @@ jobs:
           UNTRACKED_CHANGED="$(git ls-files --others --exclude-standard)"
 
           echo "Tracked changes:"
-          if [ -n "$TRACKED_CHANGED" ]; then
-            printf '%s\n' "$TRACKED_CHANGED"
-          else
-            echo "NONE"
-          fi
+          printf '%s\n' "$TRACKED_CHANGED"
 
           echo "Untracked files:"
-          if [ -n "$UNTRACKED_CHANGED" ]; then
-            printf '%s\n' "$UNTRACKED_CHANGED"
-          else
-            echo "NONE"
-          fi
+          printf '%s\n' "$UNTRACKED_CHANGED"
 
           BAD_TRACKED="$(
             printf '%s\n' "$TRACKED_CHANGED" |
@@ -507,7 +489,7 @@ jobs:
           fi
 
           if [ -n "$UNTRACKED_CHANGED" ]; then
-            echo "ERROR: Agent created untracked files:"
+            echo "ERROR: Agent created unexpected untracked files:"
             printf '%s\n' "$UNTRACKED_CHANGED"
             exit 1
           fi
@@ -539,26 +521,27 @@ jobs:
     env:
       NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
       NVIDIA_BASE_URL: https://integrate.api.nvidia.com/v1
+
       AGENT_PROMPT: |
         You are Agent 4 for the BookingLab project.
 
         Repository:
         amrZiyada/mtb
 
-        Assigned file:
+        ASSIGNED FILE:
         web/app/page.tsx
 
         TASK:
-        Audit the public patient booking flow for patient address handling.
+        Audit the public patient booking flow for patient address.
 
-        The public booking flow must:
-        1. Provide an address field.
-        2. Include the entered address in the booking request.
-        3. Preserve the address exactly as entered.
-        4. Not interfere with test selection, cart behavior, pricing, or preferred date/time.
+        Verify that:
+        1. Address field exists.
+        2. Entered address is included in booking request.
+        3. Address is preserved as entered.
+        4. Address does not interfere with tests, cart, pricing, or preferred date/time.
 
-        IMPORTANT BOOKINGLAB RULES:
-        - Reservation statuses are EXACTLY:
+        IMPORTANT RULES:
+        - Statuses are EXACTLY:
           PENDING -> ASSIGNED -> ACCEPTED -> CONFIRMED -> DONE
         - There is NO CANCELLED status.
         - Do not change authentication.
@@ -570,27 +553,23 @@ jobs:
         - Do not change original_total.
         - Do not change assignment behavior.
         - Do not modify unrelated files.
-        - Do not refactor unrelated UI.
 
-        FIRST inspect the existing implementation carefully.
+        FIRST inspect the existing implementation.
 
-        If the current implementation already satisfies the task:
-        - Make NO source-code changes.
-        - Do NOT create a commit.
-        - Finish successfully.
+        If already correct:
+        make NO changes and finish immediately.
 
         If a real defect exists:
-        - Make the smallest safe change necessary.
-        - Modify ONLY web/app/page.tsx.
-        - Do not create speculative improvements.
-        - Do not rewrite the page.
+        make the smallest necessary change ONLY in web/app/page.tsx.
 
-        IMPORTANT:
-        Do not modify web/lib/api.ts, tsconfig files, package files,
-        or any other file to repair an unrelated TypeScript error.
-        If an existing unrelated TypeScript error appears, leave it untouched.
+        Do NOT run tests, builds, or TypeScript validation yourself.
+        Do NOT repair unrelated TypeScript errors.
+        Do NOT modify web/lib/api.ts.
+        Do NOT modify tsconfig files.
+        Do NOT modify package files.
+        Do NOT modify any other file.
 
-        Ensure the assigned file is valid TypeScript/TSX.
+        Stop immediately after the required source change is complete.
 
     steps:
       - name: Checkout repository
@@ -618,11 +597,11 @@ jobs:
           echo "Baseline: $BASE_SHA"
 
       - name: Run GLM
-        timeout-minutes: 11
+        timeout-minutes: 9
         run: |
           set -euo pipefail
 
-          timeout 10m opencode run \
+          timeout --foreground 8m opencode run \
             --model "nvidia/z-ai/glm-5.3" \
             --print-logs \
             "$AGENT_PROMPT"
@@ -632,14 +611,17 @@ jobs:
         timeout-minutes: 3
         run: |
           set -euo pipefail
-          rm -f tsconfig.tsbuildinfo
-          timeout 150s npm exec --no -- tsc --noEmit --incremental false
 
-      - name: Clean generated TypeScript cache
+          rm -f tsconfig.tsbuildinfo
+
+          timeout 150s npm exec --no -- tsc \
+            --noEmit \
+            --incremental false
+
+      - name: Clean generated files
         run: |
           set -euo pipefail
-          find web -name '*.tsbuildinfo' -type f -delete 2>/dev/null || true
-          find api -name '*.tsbuildinfo' -type f -delete 2>/dev/null || true
+          find . -name '*.tsbuildinfo' -type f -delete 2>/dev/null || true
 
       - name: Verify scope and create artifact
         timeout-minutes: 2
@@ -652,18 +634,10 @@ jobs:
           UNTRACKED_CHANGED="$(git ls-files --others --exclude-standard)"
 
           echo "Tracked changes:"
-          if [ -n "$TRACKED_CHANGED" ]; then
-            printf '%s\n' "$TRACKED_CHANGED"
-          else
-            echo "NONE"
-          fi
+          printf '%s\n' "$TRACKED_CHANGED"
 
           echo "Untracked files:"
-          if [ -n "$UNTRACKED_CHANGED" ]; then
-            printf '%s\n' "$UNTRACKED_CHANGED"
-          else
-            echo "NONE"
-          fi
+          printf '%s\n' "$UNTRACKED_CHANGED"
 
           BAD_TRACKED="$(
             printf '%s\n' "$TRACKED_CHANGED" |
@@ -672,13 +646,13 @@ jobs:
           )"
 
           if [ -n "$BAD_TRACKED" ]; then
-            echo "ERROR: Agent changed files outside assigned scope:"
+            echo "ERROR: Changes outside assigned file:"
             printf '%s\n' "$BAD_TRACKED"
             exit 1
           fi
 
           if [ -n "$UNTRACKED_CHANGED" ]; then
-            echo "ERROR: Agent created untracked files:"
+            echo "ERROR: Unexpected untracked files:"
             printf '%s\n' "$UNTRACKED_CHANGED"
             exit 1
           fi
