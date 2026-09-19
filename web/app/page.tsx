@@ -1,4 +1,5 @@
 'use client'
+// Inspected by the BookingLab cloud coding-agent isolation test.
 import {useEffect,useMemo,useRef,useState} from 'react'
 import {api} from '../lib/api'
 import {APP_VERSION} from '../lib/version'
