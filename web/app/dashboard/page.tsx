@@ -22,7 +22,8 @@ function draftFor(b:Booking):Draft{
   }
 }
 
-function TestSelector({tests,onChange,searchQuery,onSearchChange,status}:{tests:TestItem[];onChange:(t:TestItem[])=>void;searchQuery:string;onSearchChange:(q:string)=>void;status:string}){
+function TestSelector({tests,onChange,status}:{tests:TestItem[];onChange:(t:TestItem[])=>void;status:string}){
+  const [searchQuery,setSearchQuery]=useState('')
   const [results,setResults]=useState<TestItem[]>([])
   const [loading,setLoading]=useState(false)
   const existingCodes=useMemo(()=>new Set(tests.map(t=>t.test_no)),[tests])
@@ -54,9 +55,9 @@ function TestSelector({tests,onChange,searchQuery,onSearchChange,status}:{tests:
         <label>Search tests by name or code</label>
         <input
           value={searchQuery}
-          onChange={e=>onSearchChange(e.target.value)}
+          onChange={e=>setSearchQuery(e.target.value)}
           placeholder={isConfirmedOrLater?'Tests cannot be changed for confirmed visits. Use Extra Tests workflow.':'Type to search tests...'}
-          disabled={isConfirmedOrLater||loading}
+          disabled={isConfirmedOrLater}
           className="rounded-lg border px-3 py-2"
         />
       </div>
@@ -129,7 +130,6 @@ function EditForm({
   status:string;
   originalTotal?:number;
 }){
-  const [searchQuery,setSearchQuery]=useState('')
   const isConfirmedOrLater=status==='CONFIRMED'||status==='DONE'
   const canEditTests=status==='PENDING'
 
@@ -173,8 +173,6 @@ function EditForm({
         <TestSelector
           tests={draft.tests}
           onChange={handleTestsChange}
-          searchQuery={searchQuery}
-          onSearchChange={setSearchQuery}
           status={status}
         />
         {canEditTests && (
@@ -327,17 +325,28 @@ export default function Dashboard(){
     try{
       setBusy(true)
       const codes=draft.tests.map(t=>({code:t.test_no}))
-      await api(`/bookings/${encodeURIComponent(selected.reference)}`,{method:'PUT',body:JSON.stringify({
-        ...draft,
+      const body={
+        patient_name:draft.patient_name,
         age:Number(draft.age)||null,
+        gender:draft.gender,
+        phone:draft.phone,
+        address:draft.address,
+        preferred_at:draft.preferred_at,
         tests:codes
-      })})
+      }
+      const res=await api<{ok:boolean;reference:string;total:number}>(`/bookings/${encodeURIComponent(selected.reference)}`,{method:'PUT',body:JSON.stringify(body)})
+      if(!res.ok)throw new Error('Server returned error')
       setMsg('Reservation updated.')
       setEditing(false)
       await load()
       const x=await api<any>(`/bookings/${encodeURIComponent(selected.reference)}`)
       setSelected({...x.booking,extra_tests:x.extra_tests})
-    }catch(e:any){setMsg(e.message)}finally{setBusy(false)}
+    }catch(e:any){
+      const msg=e?.message||e?.error||'Failed to update reservation'
+      setMsg(msg)
+    }finally{
+      setBusy(false)
+    }
   }
 
   if(!me)return <main className="p-6">Loading…</main>
