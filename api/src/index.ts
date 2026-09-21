@@ -166,6 +166,48 @@ async function recomputeBooking(db:D1Database,ref:string,includeCurrent=false){
  }
  await db.prepare(`UPDATE bookings SET commission_owner_user_id=?,commission_owner_type=?,commission_base_rate=?,commission_bonus_rate=?,commission_threshold=?,commission_base_amount=?,commission_bonus_amount=?,commission_amount=?,daily_patient_count=?,visit_fee_rate=?,visit_fee_amount=?,updated_at=CURRENT_TIMESTAMP WHERE reference=?`).bind(ownerId,ownerType,baseRate,bonusRate,threshold,base,bonus,base+bonus,count,visitFeeRate,visitFee,ref).run()
 }
+
+async function activePriceListId(db:D1Database){
+  const row=await db.prepare('SELECT id FROM price_lists WHERE active=1 LIMIT 1').first<any>();
+  return row?.id?Number(row.id):null;
+}
+
+async function mirrorPriceList(db:D1Database,id:number){
+  await db.prepare('DELETE FROM tests').run();
+  const {results}=await db.prepare(`
+    SELECT test_no,analysis_name,unit,ref_range,specimen,duration,
+           price,contract_price,patient_price,active
+    FROM price_list_tests
+    WHERE price_list_id=? AND active=1
+  `).bind(id).all();
+
+  if(!results?.length)return;
+
+  const statements=(results as any[]).map(t=>db.prepare(`
+    INSERT INTO tests(
+      test_no,analysis_name,unit,ref_range,specimen,duration,
+      price,contract_price,patient_price,active,updated_at
+    ) VALUES(?,?,?,?,?,?,?,?,?,1,CURRENT_TIMESTAMP)
+  `).bind(
+    String(t.test_no),
+    String(t.analysis_name),
+    String(t.unit||''),
+    String(t.ref_range||''),
+    String(t.specimen||''),
+    Number(t.duration)||0,
+    Number(t.price)||0,
+    Number(t.contract_price)||0,
+    Number(t.patient_price)||0
+  ));
+
+  await db.batch(statements);
+}
+
+async function bookingPriceListMatchesActive(db:D1Database,booking:any){
+  const activeId=await activePriceListId(db);
+  return activeId!==null&&Number(booking?.price_list_id||0)===activeId;
+}
+
 app.get('/tests',async c=>{
  const q=String(c.req.query('q')||'').trim().toLowerCase();if(!q)return c.json({tests:[]});const like=`%${q}%`
  const {results}=await c.env.DB.prepare(`SELECT test_no,analysis_name,unit,ref_range,specimen,duration,price,contract_price,patient_price FROM tests WHERE active=1 AND (LOWER(analysis_name) LIKE ? OR LOWER(test_no) LIKE ? OR LOWER(unit) LIKE ? OR LOWER(ref_range) LIKE ? OR LOWER(specimen) LIKE ?) ORDER BY CASE WHEN LOWER(test_no)=? THEN 0 WHEN LOWER(analysis_name)=? THEN 1 WHEN LOWER(test_no) LIKE ? THEN 2 WHEN LOWER(analysis_name) LIKE ? THEN 3 ELSE 4 END,analysis_name ASC LIMIT 50`).bind(like,like,like,like,like,q,q,`${q}%`,`${q}%`).all();return c.json({tests:results||[]})
@@ -175,16 +217,30 @@ app.get('/bookings/check-duplicate',async c=>{const name=String(c.req.query('nam
 
 app.post('/logout',c=>{const options={httpOnly:true,secure:true,sameSite:'None' as const,path:'/'};deleteCookie(c,'admin_session',options);deleteCookie(c,'user_session',options);return c.json({ok:true})})
 
+async function newReservationReference(db:D1Database){
+  for(let i=0;i<20;i++){
+    const bytes=new Uint32Array(1);
+    crypto.getRandomValues(bytes);
+    const reference=String(100000000+(bytes[0]%900000000));
+    const exists=await db.prepare('SELECT 1 FROM bookings WHERE reference=?').bind(reference).first();
+    if(!exists)return reference;
+  }
+  throw new Error('Could not generate a unique reservation number');
+}
+
 app.post('/bookings',async c=>{
  const a=await auth(c);const b=await c.req.json();if(!validBookingFields(b))return jsonErr(c,'Invalid booking')
  if(a?.kind==='USER'&&!hasPerm(a,'create_reservations'))return jsonErr(c,'You do not have permission to create reservations',403)
  const codes=uniqueStrings(b.tests.map((t:any)=>t.code)).slice(0,100);if(!codes.length)return jsonErr(c,'No tests selected')
  const ph=codes.map(()=>'?').join(',');const {results}=await c.env.DB.prepare(`SELECT test_no,analysis_name,unit,ref_range,specimen,duration,price,contract_price,patient_price FROM tests WHERE active=1 AND test_no IN (${ph})`).bind(...codes).all();
  const byCode=new Map((results||[]).map((r:any)=>[String(r.test_no),r]));const selected=codes.map(x=>byCode.get(x)).filter(Boolean);if(selected.length!==codes.length)return jsonErr(c,'One or more selected tests are invalid')
- const total=selected.reduce((s:number,t:any)=>s+Number(t.patient_price||0),0);const reference='LAB-'+Date.now().toString(36).toUpperCase()+'-'+randomHex();
+ const total=selected.reduce((s:number,t:any)=>s+Number(t.patient_price||0),0);
+  const priceListId=await activePriceListId(c.env.DB);
+  if(priceListId===null)return jsonErr(c,'No active price list configured',409);
+  const reference=await newReservationReference(c.env.DB);
  const createdByType=a?.kind==='USER'?a.user!.user_type:'PUBLIC';const creatorId=a?.kind==='USER'?a.user!.id:null
  const s=await settings(c.env.DB);const editHours=Number(s.edit_pending_hours||24);const deadline=new Date(Date.now()+editHours*3600000).toISOString()
- await c.env.DB.prepare(`INSERT INTO bookings(reference,patient_name,age,gender,phone,preferred_at,address,tests_json,total,original_total,status,created_by_user_id,created_by_type,edit_deadline,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)`).bind(reference,String(b.patient_name).trim(),Number(b.age)||null,b.gender||null,String(b.phone).trim(),b.preferred_at||null,b.address||null,JSON.stringify(selected),total,total,'PENDING',creatorId,createdByType,deadline).run()
+ await c.env.DB.prepare(`INSERT INTO bookings(reference,patient_name,age,gender,phone,preferred_at,address,tests_json,total,original_total,price_list_id,status,created_by_user_id,created_by_type,edit_deadline,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)`).bind(reference,String(b.patient_name).trim(),Number(b.age)||null,b.gender||null,String(b.phone).trim(),b.preferred_at||null,b.address||null,JSON.stringify(selected),total,total,priceListId,'PENDING',creatorId,createdByType,deadline).run()
  await c.env.DB.prepare(`INSERT INTO booking_status_history(booking_reference,from_status,to_status,changed_by_user_id,changed_by_type) VALUES(?,?,?,?,?)`).bind(reference,null,'PENDING',creatorId,createdByType).run()
  await recomputeBooking(c.env.DB,reference)
  const duplicates=await activeDuplicate(c.env.DB,String(b.patient_name),String(b.phone),reference)
@@ -199,7 +255,7 @@ app.get('/me',async c=>{const a=await authAs(c,'USER');if(!a)return jsonErr(c,'U
 app.get('/admin/me',async c=>{const a=await authAs(c,'ADMIN');if(!a)return jsonErr(c,'Unauthorized',401);return c.json({admin:true,permissions:ALL_PERMISSIONS})})
 app.post('/change-password',async c=>{const a=await auth(c);if(!a||a.kind!=='USER')return jsonErr(c,'Unauthorized',401);const b=await c.req.json();if(!validText(b.new_password,256))return jsonErr(c,'Invalid password');await c.env.DB.prepare('UPDATE users SET password_hash=?,updated_at=CURRENT_TIMESTAMP WHERE id=?').bind(await hashPassword(b.new_password),a.user!.id).run();return c.json({ok:true})})
 
-app.get('/my/bookings',async c=>{const a=await auth(c);if(!a||a.kind!=='USER')return jsonErr(c,'Unauthorized',401);if(!hasPerm(a,'view_own_reservations'))return jsonErr(c,'Permission denied',403);const {results}=await c.env.DB.prepare(`SELECT b.*,u.display_name AS assigned_name FROM bookings b LEFT JOIN users u ON u.id=b.assigned_to_user_id WHERE b.created_by_user_id=? OR b.assigned_to_user_id=? ORDER BY b.created_at DESC LIMIT 500`).bind(a.user!.id,a.user!.id).all();return c.json({bookings:results||[]})})
+app.get('/my/bookings',async c=>{const a=await auth(c);if(!a||a.kind!=='USER')return jsonErr(c,'Unauthorized',401);if(!hasPerm(a,'view_own_reservations'))return jsonErr(c,'Permission denied',403);const q=String(c.req.query('q')||'').trim().toLowerCase();const sort=String(c.req.query('sort')||'registration');const dir=String(c.req.query('dir')||'desc').toLowerCase()==='asc'?'ASC':'DESC';const sortMap:any={patient:'LOWER(b.patient_name)',registration:'b.created_at',appointment:'b.preferred_at',updated:'b.updated_at',reference:'b.reference'};const sortSql=sortMap[sort]||sortMap.registration;const where=q?' AND (LOWER(b.patient_name) LIKE ? OR b.phone LIKE ? OR LOWER(b.reference) LIKE ?)':'';const params:any[]=[a.user!.id,a.user!.id];if(q){const like=`%${q}%`;params.push(like,like,like)}const {results}=await c.env.DB.prepare(`SELECT b.*,u.display_name AS assigned_name FROM bookings b LEFT JOIN users u ON u.id=b.assigned_to_user_id WHERE (b.created_by_user_id=? OR b.assigned_to_user_id=?)${where} ORDER BY ${sortSql} ${dir} LIMIT 500`).bind(...params).all();return c.json({bookings:results||[]})})
 
 app.get('/me/performance',async c=>{const a=await auth(c);if(!a||a.kind!=='USER')return jsonErr(c,'Unauthorized',401);if(!hasPerm(a,'view_own_reservations'))return jsonErr(c,'Permission denied',403);const range=reportRange(c);if(!range)return jsonErr(c,'A valid date range up to 366 days is required');const {results}=await c.env.DB.prepare(`SELECT * FROM bookings WHERE DATE(created_at) BETWEEN ? AND ? AND (created_by_user_id=? OR assigned_to_user_id=?) ORDER BY created_at DESC LIMIT 5000`).bind(range.from,range.to,a.user!.id,a.user!.id).all();const rows=results||[];const doneRows=rows.filter((b:any)=>b.status==='DONE');const acceptedRows=rows.filter((b:any)=>['ACCEPTED','CONFIRMED','DONE'].includes(b.status));const confirmedRows=rows.filter((b:any)=>['CONFIRMED','DONE'].includes(b.status));const testCount=rows.reduce((n:number,b:any)=>n+bookingTestCount(b),0);const finalized=doneRows.filter((b:any)=>Number(b.commission_owner_user_id)===a.user!.id).reduce((n:number,b:any)=>n+Number(b.commission_amount||0),0);const extras=Number((await c.env.DB.prepare(`SELECT COALESCE(SUM(e.commission_amount),0) AS amount FROM booking_extra_tests e JOIN bookings b ON b.reference=e.booking_reference WHERE e.added_by_user_id=? AND b.status='DONE' AND DATE(b.created_at) BETWEEN ? AND ?`).bind(a.user!.id,range.from,range.to).first<any>())?.amount||0);const paid=Number((await c.env.DB.prepare('SELECT COALESCE(SUM(amount),0) AS amount FROM commission_payments WHERE user_id=? AND DATE(paid_at) BETWEEN ? AND ?').bind(a.user!.id,range.from,range.to).first<any>())?.amount||0);const visit=Number((await c.env.DB.prepare(`SELECT COALESCE(SUM(visit_fee_amount),0) AS amount FROM bookings WHERE assigned_to_user_id=? AND created_by_type='SALESMAN' AND status='DONE' AND DATE(created_at) BETWEEN ? AND ?`).bind(a.user!.id,range.from,range.to).first<any>())?.amount||0);return c.json({from:range.from,to:range.to,bookings:rows.length,patients:rows.length,tests:testCount,accepted:acceptedRows.length,confirmed:confirmedRows.length,done:doneRows.length,completion_rate:rows.length?doneRows.length/rows.length:0,earned_commission:finalized+extras,paid_commission:paid,outstanding_commission:Math.max(0,finalized+extras-paid),extra_test_commission:extras,visit_fees:visit})})
 
@@ -230,19 +286,144 @@ async function transition(c:AppContext,ref:string,to:string){const a=await auth(
 }
 app.post('/bookings/:reference/status',async c=>{const b=await c.req.json();return transition(c,String(c.req.param('reference')),String(b.status||''))})
 
-app.put('/bookings/:reference',async c=>{const a=await auth(c);if(!a)return jsonErr(c,'Unauthorized',401);const ref=String(c.req.param('reference'));const old=await bookingByRef(c.env.DB,ref);if(!old)return jsonErr(c,'Booking not found',404)
-  if(isFinalizedBooking(old))return jsonErr(c,'Finalized reservations cannot be edited',409)
-  const isAdmin=a.kind==='ADMIN';const ownPending=a.kind==='USER'&&old.created_by_user_id===a.user!.id&&old.status==='PENDING'&&hasPerm(a,'edit_own_pending_reservations')&&(!old.edit_deadline||new Date(old.edit_deadline).getTime()>=Date.now());const assignedPreConfirmed=a.kind==='USER'&&old.assigned_to_user_id===a.user!.id&&(old.status==='ASSIGNED'||old.status==='ACCEPTED')&&hasPerm(a,'edit_own_pending_reservations');const confirmedAssigned=a.kind==='USER'&&old.assigned_to_user_id===a.user!.id&&old.status==='CONFIRMED'&&hasPerm(a,'edit_confirmed_assigned_reservations');if(!isAdmin&&!ownPending&&!assignedPreConfirmed&&!confirmedAssigned)return jsonErr(c,'You cannot edit this reservation',403)
-  const b=await c.req.json();const candidate={patient_name:b.patient_name??old.patient_name,age:b.age??old.age,gender:b.gender??old.gender,phone:b.phone??old.phone,preferred_at:b.preferred_at??old.preferred_at,address:b.address??old.address,tests:b.tests};if(!validBookingFields(candidate))return jsonErr(c,'Invalid booking');const codes=uniqueStrings(b.tests.map((x:any)=>x.code)).slice(0,100)
-  const ph=codes.map(()=>'?').join(',');const {results}=await c.env.DB.prepare(`SELECT test_no,analysis_name,unit,ref_range,specimen,duration,price,contract_price,patient_price FROM tests WHERE active=1 AND test_no IN (${ph})`).bind(...codes).all();const map=new Map((results||[]).map((x:any)=>[String(x.test_no),x]));const oldTests=JSON.parse(old.tests_json||'[]');const oldMap=new Map(oldTests.map((x:any)=>[String(x.test_no),x]));if(old.status==='CONFIRMED'&&!isAdmin){const added=codes.filter(code=>!oldMap.has(code));if(added.length)return jsonErr(c,'New tests during a confirmed visit must be added as Extra Tests',409)}const selected=codes.map(code=>oldMap.get(code)||map.get(code)).filter(Boolean);if(selected.length!==codes.length)return jsonErr(c,'One or more tests are invalid')
-  const total=selected.reduce((s:number,t:any)=>s+Number(t.patient_price||0),0);await c.env.DB.prepare(`UPDATE bookings SET patient_name=?,age=?,gender=?,phone=?,preferred_at=?,address=?,tests_json=?,total=?,updated_at=CURRENT_TIMESTAMP WHERE reference=?`).bind(String(b.patient_name??old.patient_name).trim(),Number(b.age??old.age)||null,b.gender??old.gender??null,String(b.phone??old.phone).trim(),b.preferred_at??old.preferred_at??null,b.address??old.address??null,JSON.stringify(selected),total,ref).run()
-  await recomputeBooking(c.env.DB,ref);return c.json({ok:true,reference:ref,total})
+app.put('/bookings/:reference',async c=>{
+  const a=await auth(c);
+  if(!a)return jsonErr(c,'Unauthorized',401);
+
+  const ref=String(c.req.param('reference'));
+  const old=await bookingByRef(c.env.DB,ref);
+
+  if(!old)return jsonErr(c,'Booking not found',404);
+  if(isFinalizedBooking(old))return jsonErr(c,'Finalized reservations cannot be edited',409);
+
+  const samePriceList=await bookingPriceListMatchesActive(c.env.DB,old);
+  if(!samePriceList){
+    return jsonErr(c,'This reservation belongs to a different price list. Switch back to its price list before editing.',409);
+  }
+
+  const isAdmin=a.kind==='ADMIN';
+
+  const ownPending=a.kind==='USER'&&
+    old.created_by_user_id===a.user!.id&&
+    old.status==='PENDING'&&
+    hasPerm(a,'edit_own_pending_reservations')&&
+    (!old.edit_deadline||new Date(old.edit_deadline).getTime()>=Date.now());
+
+  const assignedPreConfirmed=a.kind==='USER'&&
+    old.assigned_to_user_id===a.user!.id&&
+    (old.status==='ASSIGNED'||old.status==='ACCEPTED')&&
+    hasPerm(a,'edit_own_pending_reservations');
+
+  const confirmedAssigned=a.kind==='USER'&&
+    old.assigned_to_user_id===a.user!.id&&
+    old.status==='CONFIRMED'&&
+    hasPerm(a,'edit_confirmed_assigned_reservations');
+
+  if(!isAdmin&&!ownPending&&!assignedPreConfirmed&&!confirmedAssigned){
+    return jsonErr(c,'You cannot edit this reservation',403);
+  }
+
+  const b=await c.req.json();
+
+  const candidate={
+    patient_name:b.patient_name??old.patient_name,
+    age:b.age??old.age,
+    gender:b.gender??old.gender,
+    phone:b.phone??old.phone,
+    preferred_at:b.preferred_at??old.preferred_at,
+    address:b.address??old.address,
+    tests:b.tests
+  };
+
+  if(!validBookingFields(candidate))return jsonErr(c,'Invalid booking');
+
+  const codes=uniqueStrings(b.tests.map((x:any)=>x.code)).slice(0,100);
+  if(!codes.length)return jsonErr(c,'No tests selected');
+
+  const ph=codes.map(()=>'?').join(',');
+
+  const {results}=await c.env.DB.prepare(`
+    SELECT test_no,analysis_name,unit,ref_range,specimen,duration,
+           price,contract_price,patient_price
+    FROM tests
+    WHERE active=1 AND test_no IN (${ph})
+  `).bind(...codes).all();
+
+  const map=new Map((results||[]).map((x:any)=>[String(x.test_no),x]));
+
+  const oldTests=JSON.parse(old.tests_json||'[]');
+  const oldMap=new Map(oldTests.map((x:any)=>[String(x.test_no),x]));
+
+  if(old.status==='CONFIRMED'&&!isAdmin){
+    const added=codes.filter(code=>!oldMap.has(code));
+    if(added.length){
+      return jsonErr(c,'New tests during a confirmed visit must be added as Extra Tests',409);
+    }
+  }
+
+  const selected=codes
+    .map(code=>oldMap.get(code)||map.get(code))
+    .filter(Boolean);
+
+  if(selected.length!==codes.length){
+    return jsonErr(c,'One or more tests are invalid');
+  }
+
+  const originalTotal=selected.reduce(
+    (sum:number,t:any)=>sum+Number(t.patient_price||0),0
+  );
+
+  const extraRow=await c.env.DB.prepare(`
+    SELECT COALESCE(SUM(price),0) AS amount
+    FROM booking_extra_tests
+    WHERE booking_reference=?
+  `).bind(ref).first<any>();
+
+  const extraTotal=Number(extraRow?.amount||0);
+  const total=originalTotal+extraTotal;
+
+  await c.env.DB.prepare(`
+    UPDATE bookings
+    SET patient_name=?,
+        age=?,
+        gender=?,
+        phone=?,
+        preferred_at=?,
+        address=?,
+        tests_json=?,
+        total=?,
+        updated_at=CURRENT_TIMESTAMP
+    WHERE reference=?
+  `).bind(
+    String(b.patient_name??old.patient_name).trim(),
+    Number(b.age??old.age)||null,
+    b.gender??old.gender??null,
+    String(b.phone??old.phone).trim(),
+    b.preferred_at??old.preferred_at??null,
+    b.address??old.address??null,
+    JSON.stringify(selected),
+    total,
+    ref
+  ).run();
+
+  await recomputeBooking(c.env.DB,ref);
+
+  return c.json({
+    ok:true,
+    reference:ref,
+    total,
+    original_total:old.original_total
+  });
 })
 
 app.post('/bookings/:reference/extra-tests',async c=>{
  const a=await auth(c);if(!a||a.kind!=='USER'||!hasPerm(a,'add_extra_tests'))return jsonErr(c,'Permission denied',403)
  const ref=String(c.req.param('reference'));const b=await bookingByRef(c.env.DB,ref)
  if(!b||Number(b.assigned_to_user_id)!==a.user!.id||b.status!=='CONFIRMED')return jsonErr(c,'Extra tests can only be added by the assigned user after confirmation',403)
+  if(!await bookingPriceListMatchesActive(c.env.DB,b)){
+    return jsonErr(c,'This reservation belongs to a different price list. Switch back to its price list before adding Extra Tests.',409);
+  }
+
  const body=await c.req.json();if(!validTests(body.tests))return jsonErr(c,'Invalid extra tests');const codes=uniqueStrings(body.tests.map((x:any)=>x.code)).slice(0,100);if(!codes.length)return jsonErr(c,'No extra tests selected')
  const ph=codes.map(()=>'?').join(',');const {results}=await c.env.DB.prepare(`SELECT test_no,analysis_name,specimen,patient_price FROM tests WHERE active=1 AND test_no IN (${ph})`).bind(...codes).all();const map=new Map((results||[]).map((x:any)=>[String(x.test_no),x]));
  const existing=new Set((await c.env.DB.prepare('SELECT test_no FROM booking_extra_tests WHERE booking_reference=?').bind(ref).all()).results?.map((x:any)=>String(x.test_no))||[])
@@ -259,7 +440,7 @@ app.post('/bookings/:reference/extra-tests',async c=>{
 app.post('/admin/login',async c=>{const {password}=await c.req.json();if(!validText(password,256))return jsonErr(c,'Invalid password',401);const key=loginKey('admin','admin',clientIp(c));if(!loginAllowed(key))return jsonErr(c,'Too many login attempts. Try again later.',429);await ensureAdminTable(c.env.DB);const row=await c.env.DB.prepare('SELECT password_hash FROM admin_users WHERE id=1').first<any>();const stored=row?.password_hash||c.env.ADMIN_PASSWORD_HASH;const verification=stored?await verifyPassword(stored,String(password)):null;if(!stored||!verification?.valid){loginFailure(key);return jsonErr(c,'Invalid password',401)}loginSuccess(key);if(verification.legacy||!row?.password_hash)await c.env.DB.prepare('INSERT OR REPLACE INTO admin_users(id,password_hash,updated_at) VALUES(1,?,CURRENT_TIMESTAMP)').bind(await hashPassword(String(password))).run();const token=makeToken(c.env.SESSION_SECRET,'a');setCookie(c,'admin_session',token,{httpOnly:true,secure:true,sameSite:'None',path:'/',maxAge:28800});return c.json({ok:true,token})})
 app.post('/admin/change-password',async c=>{const a=await auth(c);if(!a||a.kind!=='ADMIN')return jsonErr(c,'Unauthorized',401);const {current_password,new_password}=await c.req.json();if(!validText(current_password,256)||!validText(new_password,256))return jsonErr(c,'Invalid password');await ensureAdminTable(c.env.DB);const row=await c.env.DB.prepare('SELECT password_hash FROM admin_users WHERE id=1').first<any>();const stored=row?.password_hash||c.env.ADMIN_PASSWORD_HASH;const verification=stored?await verifyPassword(stored,String(current_password)):null;if(!stored||!verification?.valid)return jsonErr(c,'Current password is incorrect',401);await c.env.DB.prepare('INSERT OR REPLACE INTO admin_users(id,password_hash,updated_at) VALUES(1,?,CURRENT_TIMESTAMP)').bind(await hashPassword(new_password),).run();return c.json({ok:true})})
 
-app.get('/admin/bookings',async c=>{const a=await auth(c);if(!hasPerm(a,'view_all_reservations'))return jsonErr(c,'Unauthorized',401);const {results}=await c.env.DB.prepare(`SELECT b.*,cu.display_name AS creator_name,au.display_name AS assigned_name FROM bookings b LEFT JOIN users cu ON cu.id=b.created_by_user_id LEFT JOIN users au ON au.id=b.assigned_to_user_id ORDER BY CASE WHEN b.preferred_at IS NULL OR b.preferred_at='' THEN 1 ELSE 0 END,b.preferred_at ASC,b.created_at DESC LIMIT 500`).all();return c.json({bookings:results||[]})})
+app.get('/admin/bookings',async c=>{const a=await auth(c);if(!hasPerm(a,'view_all_reservations'))return jsonErr(c,'Unauthorized',401);const q=String(c.req.query('q')||'').trim().toLowerCase();const sort=String(c.req.query('sort')||'registration');const dir=String(c.req.query('dir')||'desc').toLowerCase()==='asc'?'ASC':'DESC';const sortMap:any={patient:'LOWER(b.patient_name)',registration:'b.created_at',appointment:'b.preferred_at',updated:'b.updated_at',reference:'b.reference'};const sortSql=sortMap[sort]||sortMap.registration;const where=q?' WHERE (LOWER(b.patient_name) LIKE ? OR b.phone LIKE ? OR LOWER(b.reference) LIKE ?)':'';const params:any[]=[];if(q){const like=`%${q}%`;params.push(like,like,like)}const {results}=await c.env.DB.prepare(`SELECT b.*,cu.display_name AS creator_name,au.display_name AS assigned_name FROM bookings b LEFT JOIN users cu ON cu.id=b.created_by_user_id LEFT JOIN users au ON au.id=b.assigned_to_user_id${where} ORDER BY ${sortSql} ${dir} LIMIT 500`).bind(...params).all();return c.json({bookings:results||[]})})
 
 app.post('/admin/bookings/:reference/assign',async c=>{const a=await auth(c);if(!a)return jsonErr(c,'Unauthorized',401);if(!hasPerm(a,'assign_reservations'))return jsonErr(c,'Permission denied',403);const ref=String(c.req.param('reference'));const b=await bookingByRef(c.env.DB,ref);if(!b)return jsonErr(c,'Booking not found',404);if(isFinalizedBooking(b))return jsonErr(c,'Finalized bookings cannot be reassigned',409);const {user_id}=await c.req.json();const id=Number(user_id);if(!Number.isInteger(id)||id<=0)return jsonErr(c,'Invalid user');const u=await userById(c.env.DB,id);if(!u||!u.active||!['DOCTOR','REP'].includes(u.user_type))return jsonErr(c,'Reservation can only be assigned to an active Doctor or Rep');await c.env.DB.prepare(`UPDATE bookings SET assigned_to_user_id=?,assigned_at=CURRENT_TIMESTAMP,assigned_by_user_id=?,status=CASE WHEN status='PENDING' THEN 'ASSIGNED' ELSE status END,updated_at=CURRENT_TIMESTAMP WHERE reference=?`).bind(id,a.kind==='USER'?a.user!.id:null,ref).run();await c.env.DB.prepare('INSERT INTO booking_assignment_history(booking_reference,from_user_id,to_user_id,assigned_by_user_id) VALUES(?,?,?,?)').bind(ref,b.assigned_to_user_id||null,id,a.kind==='USER'?a.user!.id:null).run();if(b.status==='PENDING')await c.env.DB.prepare('INSERT INTO booking_status_history(booking_reference,from_status,to_status,changed_by_user_id,changed_by_type) VALUES(?,?,?,?,?)').bind(ref,'PENDING','ASSIGNED',null,'ADMIN').run();await recomputeBooking(c.env.DB,ref);return c.json({ok:true,status:b.status==='PENDING'?'ASSIGNED':b.status,assigned_to_user_id:id})})
 app.post('/admin/bookings/:reference/status',async c=>{const a=await auth(c);if(!a||a.kind!=='ADMIN')return jsonErr(c,'Unauthorized',401);const body=await c.req.json();return transition(c,String(c.req.param('reference')),String(body.status||''))})
@@ -277,9 +458,240 @@ app.get('/admin/financials',async c=>{const a=await auth(c);if(!a||a.kind!=='ADM
 app.post('/admin/payments/commission',async c=>{const a=await auth(c);if(!a||a.kind!=='ADMIN')return jsonErr(c,'Unauthorized',401);const b=await c.req.json();const uid=Number(b.user_id),amount=Number(b.amount);if(!uid||!Number.isFinite(amount)||amount<=0)return jsonErr(c,'Invalid payment');const done=await c.env.DB.prepare(`SELECT COALESCE(SUM(commission_amount + extra_tests_commission_amount),0) AS n FROM bookings WHERE status='DONE' AND commission_owner_user_id=?`).bind(uid).first<any>();const paid=await c.env.DB.prepare('SELECT COALESCE(SUM(amount),0) AS n FROM commission_payments WHERE user_id=?').bind(uid).first<any>();if(amount>Number(done?.n||0)-Number(paid?.n||0)+0.000001)return jsonErr(c,'Payment exceeds outstanding commission',409);await c.env.DB.prepare('INSERT INTO commission_payments(user_id,amount,paid_by_user_id,note) VALUES(?,?,?,?)').bind(uid,amount,null,String(b.note||'')).run();return c.json({ok:true})})
 app.post('/admin/payments/visit-fee',async c=>{const a=await auth(c);if(!a||a.kind!=='ADMIN')return jsonErr(c,'Unauthorized',401);const b=await c.req.json();const uid=Number(b.user_id),amount=Number(b.amount);if(!uid||!Number.isFinite(amount)||amount<=0)return jsonErr(c,'Invalid payment');const earned=await c.env.DB.prepare(`SELECT COALESCE(SUM(visit_fee_amount),0) AS n FROM bookings WHERE status='DONE' AND assigned_to_user_id=? AND created_by_type='SALESMAN'`).bind(uid).first<any>();const paid=await c.env.DB.prepare('SELECT COALESCE(SUM(amount),0) AS n FROM visit_fee_payments WHERE user_id=?').bind(uid).first<any>();if(amount>Number(earned?.n||0)-Number(paid?.n||0)+0.000001)return jsonErr(c,'Payment exceeds outstanding visit fees',409);await c.env.DB.prepare('INSERT INTO visit_fee_payments(user_id,amount,paid_by_user_id,note) VALUES(?,?,?,?)').bind(uid,amount,null,String(b.note||'')).run();return c.json({ok:true})})
 
+
+app.get('/admin/price-lists',async c=>{
+  const a=await auth(c);
+  if(!hasPerm(a,'manage_catalog'))return jsonErr(c,'Unauthorized',401);
+
+  const {results}=await c.env.DB.prepare(`
+    SELECT id,name,active,created_at,updated_at,
+      (SELECT COUNT(*) FROM price_list_tests plt
+       WHERE plt.price_list_id=pl.id AND plt.active=1) AS test_count
+    FROM price_lists pl
+    ORDER BY id DESC
+  `).all();
+
+  return c.json({
+    price_lists:results||[],
+    active_id:await activePriceListId(c.env.DB)
+  });
+})
+
+app.post('/admin/price-lists/import',async c=>{
+  const a=await auth(c);
+  if(!hasPerm(a,'manage_catalog'))return jsonErr(c,'Unauthorized',401);
+
+  const body=await c.req.json();
+  const name=String(body.name||'').trim();
+  const tests=body.tests;
+
+  if(!name)return jsonErr(c,'Price list name is required');
+  if(!Array.isArray(tests)||!tests.length||tests.length>5000){
+    return jsonErr(c,'Invalid price list');
+  }
+
+  const seenTestNumbers=new Set<string>();
+
+  for(const t of tests){
+    const testNo=String(t?.test_no||'').trim();
+
+    if(!testNo||!t?.analysis_name||!Number.isFinite(Number(t.patient_price))){
+      return jsonErr(c,`Invalid row: ${t?.test_no||t?.analysis_name||'unknown'}`);
+    }
+
+    if(seenTestNumbers.has(testNo)){
+      return jsonErr(c,`Duplicate test number in price list: ${testNo}`,409);
+    }
+
+    seenTestNumbers.add(testNo);
+  }
+
+  const result=await c.env.DB.prepare(`
+    INSERT INTO price_lists(name,active,created_at,updated_at)
+    VALUES(?,0,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)
+  `).bind(name).run();
+
+  const id=Number(result.meta.last_row_id);
+  if(!id)return jsonErr(c,'Could not create price list',500);
+
+  const statements=(tests as any[]).map(t=>c.env.DB.prepare(`
+    INSERT INTO price_list_tests(
+      price_list_id,test_no,analysis_name,unit,ref_range,specimen,
+      duration,price,contract_price,patient_price,active,updated_at
+    ) VALUES(?,?,?,?,?,?,?,?,?,?,1,CURRENT_TIMESTAMP)
+  `).bind(
+    id,
+    String(t.test_no),
+    String(t.analysis_name),
+    String(t.unit||''),
+    String(t.ref_range||''),
+    String(t.specimen||''),
+    Number(t.duration)||0,
+    Number(t.price)||Number(t.patient_price)||0,
+    Number(t.contract_price)||0,
+    Number(t.patient_price)
+  ));
+
+  await c.env.DB.batch(statements);
+
+  await c.env.DB.prepare(
+    'UPDATE price_lists SET active=0,updated_at=CURRENT_TIMESTAMP WHERE active=1'
+  ).run();
+
+  await c.env.DB.prepare(
+    'UPDATE price_lists SET active=1,updated_at=CURRENT_TIMESTAMP WHERE id=?'
+  ).bind(id).run();
+
+  await mirrorPriceList(c.env.DB,id);
+
+  return c.json({
+    ok:true,
+    id,
+    name,
+    count:tests.length,
+    active_id:id
+  });
+})
+
+app.post('/admin/price-lists/:id/activate',async c=>{
+  const a=await auth(c);
+  if(!hasPerm(a,'manage_catalog'))return jsonErr(c,'Unauthorized',401);
+
+  const id=Number(c.req.param('id'));
+  if(!Number.isInteger(id)||id<=0)return jsonErr(c,'Invalid price list');
+
+  const list=await c.env.DB.prepare(
+    'SELECT id,name FROM price_lists WHERE id=?'
+  ).bind(id).first<any>();
+
+  if(!list)return jsonErr(c,'Price list not found',404);
+
+  await c.env.DB.prepare(
+    'UPDATE price_lists SET active=0,updated_at=CURRENT_TIMESTAMP WHERE active=1'
+  ).run();
+
+  await c.env.DB.prepare(
+    'UPDATE price_lists SET active=1,updated_at=CURRENT_TIMESTAMP WHERE id=?'
+  ).bind(id).run();
+
+  await mirrorPriceList(c.env.DB,id);
+
+  return c.json({
+    ok:true,
+    id,
+    name:list.name,
+    active_id:id
+  });
+})
+
 app.get('/admin/tests',async c=>{const a=await auth(c);if(!hasPerm(a,'manage_catalog'))return jsonErr(c,'Unauthorized',401);const q=String(c.req.query('q')||'').trim().toLowerCase();if(!q)return c.json({tests:[]});const like=`%${q}%`;const {results}=await c.env.DB.prepare(`SELECT test_no,analysis_name,unit,specimen,patient_price,active FROM tests WHERE active=1 AND (LOWER(test_no) LIKE ? OR LOWER(analysis_name) LIKE ? OR LOWER(unit) LIKE ? OR LOWER(specimen) LIKE ?) ORDER BY analysis_name LIMIT 5`).bind(like,like,like,like).all();return c.json({tests:results||[]})})
-app.post('/admin/tests/price',async c=>{const a=await auth(c);if(!hasPerm(a,'manage_catalog'))return jsonErr(c,'Unauthorized',401);const b=await c.req.json();const n=String(b.test_no||'').trim(),p=Number(b.patient_price);if(!n||!Number.isFinite(p)||p<0)return jsonErr(c,'Invalid test number or price');const r=await c.env.DB.prepare('UPDATE tests SET patient_price=?,price=?,updated_at=CURRENT_TIMESTAMP WHERE test_no=?').bind(p,p,n).run();if(!r.meta.changes)return jsonErr(c,'Test not found',404);return c.json({ok:true,test_no:n,patient_price:p})})
-app.post('/admin/tests/import',async c=>{const a=await auth(c);if(!hasPerm(a,'manage_catalog'))return jsonErr(c,'Unauthorized',401);const {tests}=await c.req.json();if(!Array.isArray(tests)||tests.length>5000)return jsonErr(c,'Invalid catalog');const statements=[];for(const t of tests){if(!t.test_no||!t.analysis_name||!Number.isFinite(Number(t.patient_price)))return jsonErr(c,`Invalid row: ${t.test_no||t.analysis_name||'unknown'}`);statements.push(c.env.DB.prepare(`INSERT INTO tests(test_no,analysis_name,unit,ref_range,specimen,duration,price,contract_price,patient_price,active,updated_at) VALUES(?,?,?,?,?,?,?,?,?,1,CURRENT_TIMESTAMP) ON CONFLICT(test_no) DO UPDATE SET analysis_name=excluded.analysis_name,unit=excluded.unit,ref_range=excluded.ref_range,specimen=excluded.specimen,duration=excluded.duration,price=excluded.price,contract_price=excluded.contract_price,patient_price=excluded.patient_price,active=1,updated_at=CURRENT_TIMESTAMP`).bind(String(t.test_no),String(t.analysis_name),String(t.unit||''),String(t.ref_range||''),String(t.specimen||''),Number(t.duration)||0,Number(t.price)||Number(t.patient_price)||0,Number(t.contract_price)||0,Number(t.patient_price)))}await c.env.DB.batch(statements);return c.json({count:tests.length})})
+app.post('/admin/tests/price',async c=>{
+  const a=await auth(c);
+  if(!hasPerm(a,'manage_catalog'))return jsonErr(c,'Unauthorized',401);
+
+  const b=await c.req.json();
+  const n=String(b.test_no||'').trim();
+  const p=Number(b.patient_price);
+
+  if(!n||!Number.isFinite(p)||p<0){
+    return jsonErr(c,'Invalid test number or price');
+  }
+
+  const activeId=await activePriceListId(c.env.DB);
+  if(activeId===null){
+    return jsonErr(c,'No active price list configured',409);
+  }
+
+  const r=await c.env.DB.prepare(`
+    UPDATE price_list_tests
+    SET patient_price=?,price=?,updated_at=CURRENT_TIMESTAMP
+    WHERE price_list_id=? AND test_no=? AND active=1
+  `).bind(p,p,activeId,n).run();
+
+  if(!r.meta.changes){
+    return jsonErr(c,'Test not found',404);
+  }
+
+  await c.env.DB.prepare(`
+    UPDATE tests
+    SET patient_price=?,price=?,updated_at=CURRENT_TIMESTAMP
+    WHERE test_no=?
+  `).bind(p,p,n).run();
+
+  return c.json({
+    ok:true,
+    test_no:n,
+    patient_price:p,
+    price_list_id:activeId
+  });
+})
+
+app.post('/admin/tests/import',async c=>{
+  const a=await auth(c);
+  if(!hasPerm(a,'manage_catalog'))return jsonErr(c,'Unauthorized',401);
+
+  const body=await c.req.json();
+  const tests=body.tests;
+  const name=String(body.name||'').trim();
+
+  if(!name)return jsonErr(c,'Price list name is required');
+  if(!Array.isArray(tests)||tests.length>5000){
+    return jsonErr(c,'Invalid catalog');
+  }
+
+  for(const t of tests){
+    if(!t?.test_no||!t?.analysis_name||!Number.isFinite(Number(t.patient_price))){
+      return jsonErr(c,`Invalid row: ${t?.test_no||t?.analysis_name||'unknown'}`);
+    }
+  }
+
+  const result=await c.env.DB.prepare(`
+    INSERT INTO price_lists(name,active,created_at,updated_at)
+    VALUES(?,0,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)
+  `).bind(name).run();
+
+  const id=Number(result.meta.last_row_id);
+  if(!id)return jsonErr(c,'Could not create price list',500);
+
+  const statements=(tests as any[]).map(t=>c.env.DB.prepare(`
+    INSERT INTO price_list_tests(
+      price_list_id,test_no,analysis_name,unit,ref_range,specimen,
+      duration,price,contract_price,patient_price,active,updated_at
+    ) VALUES(?,?,?,?,?,?,?,?,?,?,1,CURRENT_TIMESTAMP)
+  `).bind(
+    id,
+    String(t.test_no),
+    String(t.analysis_name),
+    String(t.unit||''),
+    String(t.ref_range||''),
+    String(t.specimen||''),
+    Number(t.duration)||0,
+    Number(t.price)||Number(t.patient_price)||0,
+    Number(t.contract_price)||0,
+    Number(t.patient_price)
+  ));
+
+  await c.env.DB.batch(statements);
+
+  await c.env.DB.prepare(
+    'UPDATE price_lists SET active=0,updated_at=CURRENT_TIMESTAMP WHERE active=1'
+  ).run();
+
+  await c.env.DB.prepare(
+    'UPDATE price_lists SET active=1,updated_at=CURRENT_TIMESTAMP WHERE id=?'
+  ).bind(id).run();
+
+  await mirrorPriceList(c.env.DB,id);
+
+  return c.json({
+    ok:true,
+    count:tests.length,
+    id,
+    name,
+    active_id:id
+  });
+})
+
 
 app.get('/health',c=>c.json({ok:true,version:'1.3.0'}))
 export default app

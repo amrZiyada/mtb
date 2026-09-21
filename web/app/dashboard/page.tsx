@@ -314,13 +314,74 @@ export default function Dashboard(){
   const [to,setTo]=useState(today())
   const [performance,setPerformance]=useState<any>(null)
   const [targets,setTargets]=useState<any[]>([])
+  const [newBooking,setNewBooking]=useState<any>({patient_name:'',age:'',gender:'',phone:'',address:'',preferred_at:''})
+  const [newBookingTests,setNewBookingTests]=useState<any[]>([])
+  const [newBookingQ,setNewBookingQ]=useState('')
+  const [newBookingResults,setNewBookingResults]=useState<any[]>([])
+  const [bookingQ,setBookingQ]=useState('')
+  const [bookingSort,setBookingSort]=useState('registration')
+  const [bookingDir,setBookingDir]=useState('desc')
+
+  async function searchNewBookingTests(q:string){
+    setNewBookingQ(q)
+    if(!q.trim()){setNewBookingResults([]);return}
+    try{
+      const x=await api<any>(`/tests?q=${encodeURIComponent(q)}`)
+      setNewBookingResults(x.tests||[])
+    }catch(e:any){setMsg(e.message)}
+  }
+
+  function addNewBookingTest(t:any){
+    if(newBookingTests.some(x=>x.test_no===t.test_no))return
+    setNewBookingTests(x=>[...x,t])
+    setNewBookingQ('')
+    setNewBookingResults([])
+  }
+
+  async function createBooking(){
+    try{
+      if(!newBooking.patient_name.trim()||!newBooking.phone.trim()||!newBookingTests.length){
+        setMsg('Patient name, phone, and at least one test are required.')
+        return
+      }
+
+      const duplicateCheck=await api<any>(`/bookings/check-duplicate?name=${encodeURIComponent(newBooking.patient_name.trim())}&phone=${encodeURIComponent(newBooking.phone.trim())}`)
+      if((duplicateCheck.duplicates||[]).length){
+        const proceed=window.confirm(
+          `A pending reservation already exists for this patient or phone number.\\n\\nCreate another reservation anyway?`
+        )
+        if(!proceed)return
+      }
+
+      setBusy(true)
+      const x=await api<any>('/bookings',{method:'POST',body:JSON.stringify({
+        ...newBooking,
+        age:Number(newBooking.age)||null,
+        tests:newBookingTests.map(t=>({code:t.test_no}))
+      })})
+      setNewBooking({patient_name:'',age:'',gender:'',phone:'',address:'',preferred_at:''})
+      setNewBookingTests([])
+      setNewBookingQ('')
+      setNewBookingResults([])
+      await load()
+      setMsg(`Reservation created: ${x.reference}`)
+    }catch(e:any){setMsg(e.message)}
+    finally{setBusy(false)}
+  }
+
+const loadBookings=async(q=bookingQ,sort=bookingSort,dir=bookingDir)=>{
+    try{
+      const x=await api<any>(`/my/bookings?q=${encodeURIComponent(q)}&sort=${encodeURIComponent(sort)}&dir=${encodeURIComponent(dir)}`)
+      setRows(x.bookings||[])
+    }catch(e:any){setMsg(e.message)}
+  }
 
   const load=async()=>{
     try{
       const m=await api<any>('/me')
       if(!m.user)throw Error('Unauthorized')
       setMe(m)
-      const x=await api<any>('/my/bookings')
+      const x=await api<any>(`/my/bookings?q=${encodeURIComponent(bookingQ)}&sort=${encodeURIComponent(bookingSort)}&dir=${encodeURIComponent(bookingDir)}`)
       setRows(x.bookings||[])
     }catch(e:any){
       setMsg(e.message)
@@ -413,13 +474,44 @@ export default function Dashboard(){
         {msg&&<div className="mt-4 rounded-xl border bg-white p-3 text-sm">{msg}</div>}
         <Performance from={from} to={to} setFrom={setFrom} setTo={setTo} data={performance} load={loadPerformance}/>
         <TargetPanel targets={targets}/>
+        {p.includes('create_reservations')&&<section className="mt-5 rounded-2xl border bg-white p-5">
+          <h2 className="text-lg font-bold">Create reservation</h2>
+          <div className="mt-3 grid gap-2 md:grid-cols-2">
+            <input value={newBooking.patient_name} onChange={e=>setNewBooking({...newBooking,patient_name:e.target.value})} placeholder="Patient name" className="rounded-lg border px-3 py-2"/>
+            <input type="number" value={newBooking.age} onChange={e=>setNewBooking({...newBooking,age:e.target.value})} placeholder="Age" className="rounded-lg border px-3 py-2"/>
+            <select value={newBooking.gender} onChange={e=>setNewBooking({...newBooking,gender:e.target.value})} className="rounded-lg border px-3 py-2"><option value="">Gender</option><option value="MALE">Male</option><option value="FEMALE">Female</option></select>
+            <input value={newBooking.phone} onChange={e=>setNewBooking({...newBooking,phone:e.target.value})} placeholder="Phone" className="rounded-lg border px-3 py-2"/>
+            <input value={newBooking.address} onChange={e=>setNewBooking({...newBooking,address:e.target.value})} placeholder="Address" className="rounded-lg border px-3 py-2 md:col-span-2"/>
+            <input type="datetime-local" value={newBooking.preferred_at} onChange={e=>setNewBooking({...newBooking,preferred_at:e.target.value})} className="rounded-lg border px-3 py-2"/>
+          </div>
+          <div className="mt-3">
+            <input value={newBookingQ} onChange={e=>searchNewBookingTests(e.target.value)} placeholder="Search tests to add" className="w-full rounded-lg border px-3 py-2"/>
+            {newBookingResults.length>0&&<div className="mt-2 rounded-lg border">{newBookingResults.map(t=><button type="button" key={t.test_no} onClick={()=>addNewBookingTest(t)} className="block w-full border-b px-3 py-2 text-left last:border-0 hover:bg-slate-50"><b>{t.test_no}</b> · <span dir="auto">{t.analysis_name}</span> · {t.patient_price} EGP</button>)}</div>}
+          </div>
+          {newBookingTests.length>0&&<div className="mt-3 flex flex-wrap gap-2">{newBookingTests.map(t=><span key={t.test_no} className="rounded-full border px-3 py-1 text-sm">{t.analysis_name} · {t.patient_price} EGP <button type="button" onClick={()=>setNewBookingTests(x=>x.filter(y=>y.test_no!==t.test_no))}>×</button></span>)}</div>}
+          <button disabled={busy} onClick={createBooking} className="mt-4 rounded-lg bg-slate-900 px-4 py-2 text-white">Create reservation</button>
+        </section>}
         <section className="mt-5 rounded-2xl border bg-white p-5">
           <div className="flex flex-wrap justify-between gap-3">
             <div>
               <h2 className="text-lg font-bold">My / Assigned Reservations</h2>
               <p className="text-sm text-slate-500">Status and actions are enforced by your permissions.</p>
             </div>
-            <button onClick={load} className="rounded-lg border px-3 py-2">Refresh</button>
+            <div className="mt-4 grid gap-2 md:grid-cols-[1fr_auto_auto_auto]">
+              <input value={bookingQ} onChange={e=>{setBookingQ(e.target.value);loadBookings(e.target.value,bookingSort,bookingDir)}} placeholder="Search patient, phone, or reservation number" className="rounded-lg border px-3 py-2"/>
+              <select value={bookingSort} onChange={e=>{setBookingSort(e.target.value);loadBookings(bookingQ,e.target.value,bookingDir)}} className="rounded-lg border px-3 py-2">
+                <option value="patient">Patient name</option>
+                <option value="registration">Registration date</option>
+                <option value="appointment">Appointment date</option>
+                <option value="updated">Last edited</option>
+                <option value="reference">Reservation number</option>
+              </select>
+              <select value={bookingDir} onChange={e=>{setBookingDir(e.target.value);loadBookings(bookingQ,bookingSort,e.target.value)}} className="rounded-lg border px-3 py-2">
+                <option value="desc">Descending</option>
+                <option value="asc">Ascending</option>
+              </select>
+              <button onClick={()=>loadBookings()} className="rounded-lg border px-3 py-2">Refresh</button>
+            </div>
           </div>
           <div className="mt-4 grid gap-3">
             {rows.map(b=>(
