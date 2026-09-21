@@ -22,11 +22,11 @@ function draftFor(b:Booking):Draft{
   }
 }
 
-function TestSelector({tests,onChange,status}:{tests:TestItem[];onChange:(t:TestItem[])=>void;status:string}){
+function TestSelector({tests,onChange,status,mode,blockedTests}:{tests:TestItem[];onChange:(t:TestItem[])=>void;status:string;mode?:'original'|'extra';blockedTests?:TestItem[]}){
   const [searchQuery,setSearchQuery]=useState('')
   const [results,setResults]=useState<TestItem[]>([])
   const [loading,setLoading]=useState(false)
-  const existingCodes=useMemo(()=>new Set(tests.map(t=>t.test_no)),[tests])
+  const existingCodes=useMemo(()=>new Set([...tests.map(t=>t.test_no),...(blockedTests||[]).map(t=>t.test_no)]),[tests,blockedTests])
 
   useEffect(()=>{
     let cancelled=false
@@ -48,20 +48,22 @@ function TestSelector({tests,onChange,status}:{tests:TestItem[];onChange:(t:Test
   }
 
   const isConfirmedOrLater=status==='CONFIRMED'||status==='DONE'
+  const canEdit=mode==='original'?status==='PENDING':status==='CONFIRMED'
 
   return (
     <div className="space-y-3">
-      <div className="grid gap-1 text-sm">
-        <label>Search tests by name or code</label>
-        <input
-          value={searchQuery}
-          onChange={e=>setSearchQuery(e.target.value)}
-          placeholder={isConfirmedOrLater?'Tests cannot be changed for confirmed visits. Use Extra Tests workflow.':'Type to search tests...'}
-          disabled={isConfirmedOrLater}
-          className="rounded-lg border px-3 py-2"
-        />
-      </div>
-      {!isConfirmedOrLater && results.length>0 && (
+      {canEdit && (
+        <div className="grid gap-1 text-sm">
+          <label>Search tests by name or code</label>
+          <input
+            value={searchQuery}
+            onChange={e=>setSearchQuery(e.target.value)}
+            placeholder={mode==='extra'?'Type to search extra tests...':'Type to search tests...'}
+            className="rounded-lg border px-3 py-2"
+          />
+        </div>
+      )}
+      {canEdit && results.length>0 && (
         <div className="max-h-48 overflow-auto rounded-lg border p-2 space-y-1">
           {results.map(t=>(
             <button
@@ -84,9 +86,9 @@ function TestSelector({tests,onChange,status}:{tests:TestItem[];onChange:(t:Test
         </div>
       )}
       <div className="space-y-1">
-        <label className="text-sm font-medium">Selected tests ({tests.length})</label>
+        <label className="text-sm font-medium">{mode==='extra'?'Extra tests':'Selected tests'} ({tests.length})</label>
         {tests.length===0 ? (
-          <p className="text-sm text-slate-500">No tests selected</p>
+          <p className="text-sm text-slate-500">{mode==='extra'?'No extra tests added':'No tests selected'}</p>
         ) : (
           <ul className="space-y-1">
             {tests.map((t,i)=>(
@@ -94,7 +96,7 @@ function TestSelector({tests,onChange,status}:{tests:TestItem[];onChange:(t:Test
                 <span className="font-mono text-xs text-slate-600">{t.test_no}</span>
                 <span className="flex-1 truncate">{t.analysis_name}</span>
                 <span className="text-xs text-slate-500">{t.patient_price!=null?t.patient_price:'0'} EGP</span>
-                {!isConfirmedOrLater && (
+                {canEdit && (
                   <button
                     type="button"
                     onClick={()=>removeTest(t.test_no)}
@@ -120,7 +122,11 @@ function EditForm({
   onClose,
   busy,
   status,
-  originalTotal
+  originalTotal,
+  originalTests,
+  extraTests,
+  setExtraTests,
+  canAddExtraTests
 }:{
   draft:Draft;
   setDraft:(x:Draft)=>void;
@@ -129,67 +135,109 @@ function EditForm({
   busy:boolean;
   status:string;
   originalTotal?:number;
+  originalTests:TestItem[];
+  extraTests:TestItem[];
+  setExtraTests:(t:TestItem[])=>void;
+  canAddExtraTests:boolean;
 }){
-  const isConfirmedOrLater=status==='CONFIRMED'||status==='DONE'
-  const canEditTests=status==='PENDING'
+  const isConfirmed=status==='CONFIRMED'
+  const isDone=status==='DONE'
+  const canEditPatient=status==='PENDING'||status==='CONFIRMED'
+  const canEditOriginalTests=status==='PENDING'
 
   const handleTestsChange=useCallback((newTests:TestItem[])=>{
     setDraft({...draft,tests:newTests})
   },[draft])
 
   return (
-    <form onSubmit={e=>{e.preventDefault();onSave()}} className="mt-5 grid gap-3 sm:grid-cols-2">
-      <label className="grid gap-1 text-sm">
-        Patient name
-        <input required value={draft.patient_name} onChange={e=>setDraft({...draft,patient_name:e.target.value})} className="rounded-lg border px-3 py-2"/>
-      </label>
-      <label className="grid gap-1 text-sm">
-        Age
-        <input required min="0" max="120" type="number" value={draft.age} onChange={e=>setDraft({...draft,age:e.target.value})} className="rounded-lg border px-3 py-2"/>
-      </label>
-      <label className="grid gap-1 text-sm">
-        Gender
-        <select required value={draft.gender} onChange={e=>setDraft({...draft,gender:e.target.value})} className="rounded-lg border px-3 py-2">
-          <option value="">Select</option>
-          <option>Male</option>
-          <option>Female</option>
-          <option>Other</option>
-        </select>
-      </label>
-      <label className="grid gap-1 text-sm">
-        Phone
-        <input required value={draft.phone} onChange={e=>setDraft({...draft,phone:e.target.value})} className="rounded-lg border px-3 py-2"/>
-      </label>
-      <label className="grid gap-1 text-sm sm:col-span-2">
-        Preferred date/time
-        <input type="datetime-local" value={draft.preferred_at} onChange={e=>setDraft({...draft,preferred_at:e.target.value})} className="rounded-lg border px-3 py-2"/>
-      </label>
-      <label className="grid gap-1 text-sm sm:col-span-2">
-        Address
-        <textarea rows={3} value={draft.address} onChange={e=>setDraft({...draft,address:e.target.value})} className="rounded-lg border px-3 py-2"/>
-      </label>
-      <label className="grid gap-1 text-sm sm:col-span-2">
-        Tests
-        <TestSelector
-          tests={draft.tests}
-          onChange={handleTestsChange}
-          status={status}
-        />
-        {canEditTests && (
-          <p className="text-xs text-slate-500">
-            Original total preserved: {originalTotal!=null?originalTotal+' EGP':'—'}
-            . Historical pricing for original tests is maintained.
-          </p>
-        )}
-        {isConfirmedOrLater && (
-          <p className="text-xs text-amber-600">
-            Tests cannot be modified for confirmed visits. Use the Extra Tests workflow to add new tests.
-          </p>
-        )}
-      </label>
-      <div className="flex justify-end gap-2 sm:col-span-2">
+    <form onSubmit={e=>{e.preventDefault();onSave()}} className="mt-5 space-y-4">
+      {canEditPatient && (
+        <>
+        <div className="grid gap-3 sm:grid-cols-2">
+            <label className="grid gap-1 text-sm">
+              Patient name
+              <input required value={draft.patient_name} onChange={e=>setDraft({...draft,patient_name:e.target.value})} className="rounded-lg border px-3 py-2" disabled={!canEditPatient}/>
+            </label>
+            <label className="grid gap-1 text-sm">
+              Age
+              <input required min="0" max="120" type="number" value={draft.age} onChange={e=>setDraft({...draft,age:e.target.value})} className="rounded-lg border px-3 py-2" disabled={!canEditPatient}/>
+            </label>
+            <label className="grid gap-1 text-sm">
+              Gender
+              <select required value={draft.gender} onChange={e=>setDraft({...draft,gender:e.target.value})} className="rounded-lg border px-3 py-2" disabled={!canEditPatient}>
+                <option value="">Select</option>
+                <option>Male</option>
+                <option>Female</option>
+                <option>Other</option>
+              </select>
+            </label>
+            <label className="grid gap-1 text-sm">
+              Phone
+              <input required value={draft.phone} onChange={e=>setDraft({...draft,phone:e.target.value})} className="rounded-lg border px-3 py-2" disabled={!canEditPatient}/>
+            </label>
+            <label className="grid gap-1 text-sm sm:col-span-2">
+              Preferred date/time
+              <input type="datetime-local" value={draft.preferred_at} onChange={e=>setDraft({...draft,preferred_at:e.target.value})} className="rounded-lg border px-3 py-2" disabled={!canEditPatient}/>
+            </label>
+            <label className="grid gap-1 text-sm sm:col-span-2">
+              Address
+              <textarea rows={3} value={draft.address} onChange={e=>setDraft({...draft,address:e.target.value})} className="rounded-lg border px-3 py-2" disabled={!canEditPatient}/>
+            </label>
+          </div>
+        </>
+      )}
+
+      <div className="border-t pt-4">
+        <label className="grid gap-1 text-sm">
+          <span className="font-medium">Original tests (historical)</span>
+          <TestSelector
+            tests={canEditOriginalTests ? draft.tests : originalTests}
+            onChange={canEditOriginalTests ? handleTestsChange : ()=>{}}
+            status={status}
+            mode="original"
+            blockedTests={canEditOriginalTests ? undefined : originalTests}
+          />
+          {status==='PENDING' && (
+            <p className="text-xs text-slate-500">
+              Original total preserved: {originalTotal!=null?originalTotal+' EGP':'—'}
+              . Historical pricing for original tests is maintained.
+            </p>
+          )}
+        </label>
+      </div>
+
+      {isConfirmed && canAddExtraTests && (
+        <div className="border-t pt-4">
+          <label className="grid gap-1 text-sm">
+            <span className="font-medium">Extra tests</span>
+            <TestSelector
+              tests={extraTests}
+              onChange={setExtraTests}
+              status={status}
+              mode="extra"
+              blockedTests={originalTests}
+            />
+            <p className="text-xs text-amber-600">
+              Extra tests are billed separately. Commission rate: 5%.
+            </p>
+          </label>
+        </div>
+      )}
+
+      {isConfirmed && canAddExtraTests && extraTests.length>0 && (
+        <div className="rounded-lg bg-amber-50 p-3 border border-amber-200">
+          <p className="text-sm font-medium text-amber-800">Pending extra tests to be added on save:</p>
+          <ul className="mt-1 ml-4 list-disc text-sm text-amber-700">
+            {extraTests.map((t,i)=>(
+              <li key={`${t.test_no}-${i}`}>{t.test_no} — {t.analysis_name} ({t.patient_price!=null?t.patient_price:'0'} EGP)</li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      <div className="flex justify-end gap-2 pt-4 border-t">
         <button type="button" onClick={onClose} disabled={busy} className="rounded-lg border px-4 py-2">Cancel</button>
-        <button type="submit" disabled={busy||draft.tests.length===0} className="rounded-lg bg-slate-900 px-4 py-2 text-white">
+        <button type="submit" disabled={busy||(canEditOriginalTests&&draft.tests.length===0)} className="rounded-lg bg-slate-900 px-4 py-2 text-white">
           {busy?'Saving…':'Save changes'}
         </button>
       </div>
@@ -257,9 +305,9 @@ export default function Dashboard(){
   const [busy,setBusy]=useState(false)
   const [newPass,setNewPass]=useState('')
   const [selected,setSelected]=useState<Booking|null>(null)
-  const [tests,setTests]=useState('')
   const [editing,setEditing]=useState(false)
   const [draft,setDraft]=useState<Draft|null>(null)
+  const [extraTests,setExtraTests]=useState<TestItem[]>([])
   const [from,setFrom]=useState(today())
   const [to,setTo]=useState(today())
   const [performance,setPerformance]=useState<any>(null)
@@ -306,25 +354,12 @@ export default function Dashboard(){
     }catch(e:any){setMsg(e.message)}
   }
 
-  async function addExtras(){
-    if(!selected)return
-    const codes=tests.split(',').map(x=>x.trim()).filter(Boolean).map(code=>({code}))
-    try{
-      setBusy(true)
-      await api(`/bookings/${encodeURIComponent(selected.reference)}/extra-tests`,{method:'POST',body:JSON.stringify({tests:codes})})
-      setTests('')
-      setMsg('Extra tests added.')
-      await load()
-      const x=await api<any>(`/bookings/${encodeURIComponent(selected.reference)}`)
-      setSelected({...x.booking,extra_tests:x.extra_tests})
-    }catch(e:any){setMsg(e.message)}finally{setBusy(false)}
-  }
-
   async function saveEdit(){
     if(!selected||!draft)return
     try{
       setBusy(true)
-      const codes=draft.tests.map(t=>({code:t.test_no}))
+      const isConfirmed=selected.status==='CONFIRMED'
+      const originalTestCodes=draft.tests.map(t=>({code:t.test_no}))
       const body={
         patient_name:draft.patient_name,
         age:Number(draft.age)||null,
@@ -332,12 +367,19 @@ export default function Dashboard(){
         phone:draft.phone,
         address:draft.address,
         preferred_at:draft.preferred_at,
-        tests:codes
+        tests:originalTestCodes
       }
       const res=await api<{ok:boolean;reference:string;total:number}>(`/bookings/${encodeURIComponent(selected.reference)}`,{method:'PUT',body:JSON.stringify(body)})
       if(!res.ok)throw new Error('Server returned error')
+
+      if(isConfirmed && extraTests.length>0){
+        const extraCodes=extraTests.map(t=>({code:t.test_no}))
+        await api(`/bookings/${encodeURIComponent(selected.reference)}/extra-tests`,{method:'POST',body:JSON.stringify({tests:extraCodes})})
+      }
+
       setMsg('Reservation updated.')
       setEditing(false)
+      setExtraTests([])
       await load()
       const x=await api<any>(`/bookings/${encodeURIComponent(selected.reference)}`)
       setSelected({...x.booking,extra_tests:x.extra_tests})
@@ -390,6 +432,7 @@ export default function Dashboard(){
                     onClick={async()=>{
                       const x=await api<any>(`/bookings/${encodeURIComponent(b.reference)}`)
                       setSelected({...x.booking,extra_tests:x.extra_tests})
+                      setExtraTests([])
                       setEditing(false)
                     }}
                     className="rounded-lg bg-slate-900 px-3 py-2 text-sm text-white"
@@ -398,13 +441,13 @@ export default function Dashboard(){
                 <div className="mt-3 flex flex-wrap gap-2">
                   {b.status==='PENDING' && p.includes('edit_own_pending_reservations') && (
                     <button
-                      onClick={()=>{setSelected(b);setDraft(draftFor(b));setEditing(true)}}
+                      onClick={()=>{setSelected(b);setDraft(draftFor(b));setExtraTests([]);setEditing(true)}}
                       className="rounded-lg border px-3 py-2 text-sm"
                     >Edit reservation</button>
                   )}
                   {b.status==='CONFIRMED' && p.includes('edit_confirmed_assigned_reservations') && (
                     <button
-                      onClick={()=>{setSelected(b);setDraft(draftFor(b));setEditing(true)}}
+                      onClick={()=>{setSelected(b);setDraft(draftFor(b));setExtraTests([]);setEditing(true)}}
                       className="rounded-lg border px-3 py-2 text-sm"
                     >Edit confirmed reservation</button>
                   )}
@@ -417,9 +460,6 @@ export default function Dashboard(){
                   {b.status==='CONFIRMED' && p.includes('mark_visits_done') && (
                     <button disabled={busy} onClick={()=>status(b.reference,'DONE')} className="rounded-lg bg-emerald-600 px-3 py-2 text-sm text-white">Mark Done</button>
                   )}
-                  {b.status==='CONFIRMED' && p.includes('add_extra_tests') && !editing && (
-                    <button onClick={()=>{setSelected(b);setEditing(false)}} className="rounded-lg border px-3 py-2 text-sm">Add extra tests</button>
-                  )}
                 </div>
               </article>
             ))}
@@ -430,17 +470,21 @@ export default function Dashboard(){
             <div className="max-h-[90vh] w-full max-w-xl overflow-auto rounded-2xl bg-white p-6">
               <div className="flex justify-between">
                 <h2 className="text-xl font-bold">{selected.reference}</h2>
-                <button onClick={()=>{setSelected(null);setEditing(false)}}>✕</button>
+                <button onClick={()=>{setSelected(null);setEditing(false);setExtraTests([])}}>✕</button>
               </div>
               {editing && draft ? (
                 <EditForm
                   draft={draft}
                   setDraft={setDraft}
                   onSave={saveEdit}
-                  onClose={()=>setEditing(false)}
+                  onClose={()=>{setEditing(false);setExtraTests([])}}
                   busy={busy}
                   status={selected.status}
                   originalTotal={selected.original_total}
+                  originalTests={parseTests(selected.tests_json||'[]')}
+                  extraTests={extraTests}
+                  setExtraTests={setExtraTests}
+                  canAddExtraTests={p.includes('add_extra_tests')}
                 />
               ) : (
                 <>
@@ -470,16 +514,8 @@ export default function Dashboard(){
                       </div>
                     )}
                   </div>
-                  {selected.status==='CONFIRMED' && p.includes('add_extra_tests') && (
-                    <div className="mt-5 rounded-xl bg-slate-50 p-4">
-                      <h3 className="font-bold">Add extra tests</h3>
-                      <p className="mt-1 text-xs text-slate-500">Enter test numbers separated by commas. Each new test earns the configured extra-test commission.</p>
-                      <input value={tests} onChange={e=>setTests(e.target.value)} placeholder="e.g. 101, 230" className="mt-3 w-full rounded-lg border px-3 py-2"/>
-                      <button disabled={busy||!tests.trim()} onClick={addExtras} className="mt-2 rounded-lg bg-slate-900 px-4 py-2 text-white">Add tests</button>
-                    </div>
-                  )}
                   <div className="mt-5 flex justify-end">
-                    <button onClick={()=>setSelected(null)} className="rounded-lg border px-4 py-2">Close</button>
+                    <button onClick={()=>{setSelected(null);setExtraTests([])}} className="rounded-lg border px-4 py-2">Close</button>
                   </div>
                 </>
               )}
