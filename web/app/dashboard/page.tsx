@@ -48,7 +48,8 @@ function TestSelector({tests,onChange,status,mode,blockedTests}:{tests:TestItem[
   }
 
   const isConfirmedOrLater=status==='CONFIRMED'||status==='DONE'
-  const canEdit=mode==='original'?status==='PENDING':status==='CONFIRMED'
+  const canEditOriginal=status==='PENDING'||status==='ASSIGNED'||status==='ACCEPTED'
+  const canEdit=mode==='original'?canEditOriginal:status==='CONFIRMED'
 
   return (
     <div className="space-y-3">
@@ -142,8 +143,9 @@ function EditForm({
 }){
   const isConfirmed=status==='CONFIRMED'
   const isDone=status==='DONE'
-  const canEditPatient=status==='PENDING'||status==='CONFIRMED'
-  const canEditOriginalTests=status==='PENDING'
+  const canEditPatient=status==='PENDING'||status==='ASSIGNED'||status==='ACCEPTED'||status==='CONFIRMED'
+  const canEditOriginalTests=status==='PENDING'||status==='ASSIGNED'||status==='ACCEPTED'
+  const showOriginalTotalNote=status==='PENDING'||status==='ASSIGNED'||status==='ACCEPTED'
 
   const handleTestsChange=useCallback((newTests:TestItem[])=>{
     setDraft({...draft,tests:newTests})
@@ -197,7 +199,7 @@ function EditForm({
             mode="original"
             blockedTests={canEditOriginalTests ? undefined : originalTests}
           />
-          {status==='PENDING' && (
+          {showOriginalTotalNote && (
             <p className="text-xs text-slate-500">
               Original total preserved: {originalTotal!=null?originalTotal+' EGP':'—'}
               . Historical pricing for original tests is maintained.
@@ -445,17 +447,29 @@ export default function Dashboard(){
                       className="rounded-lg border px-3 py-2 text-sm"
                     >Edit reservation</button>
                   )}
+                  {b.status==='ASSIGNED' && p.includes('edit_own_pending_reservations') && (
+                    <button
+                      onClick={()=>{setSelected(b);setDraft(draftFor(b));setExtraTests([]);setEditing(true)}}
+                      className="rounded-lg border px-3 py-2 text-sm"
+                    >Edit reservation</button>
+                  )}
+                  {b.status==='ASSIGNED' && p.includes('accept_assigned_reservations') && (
+                    <button disabled={busy} onClick={()=>status(b.reference,'ACCEPTED')} className="rounded-lg bg-slate-900 px-3 py-2 text-sm text-white">Accept Reservation</button>
+                  )}
+                  {b.status==='ACCEPTED' && p.includes('edit_own_pending_reservations') && (
+                    <button
+                      onClick={()=>{setSelected(b);setDraft(draftFor(b));setExtraTests([]);setEditing(true)}}
+                      className="rounded-lg border px-3 py-2 text-sm"
+                    >Edit reservation</button>
+                  )}
+                  {b.status==='ACCEPTED' && p.includes('confirm_visits') && (
+                    <button disabled={busy} onClick={()=>status(b.reference,'CONFIRMED')} className="rounded-lg bg-slate-900 px-3 py-2 text-sm text-white">Confirm Visit</button>
+                  )}
                   {b.status==='CONFIRMED' && p.includes('edit_confirmed_assigned_reservations') && (
                     <button
                       onClick={()=>{setSelected(b);setDraft(draftFor(b));setExtraTests([]);setEditing(true)}}
                       className="rounded-lg border px-3 py-2 text-sm"
                     >Edit confirmed reservation</button>
-                  )}
-                  {b.status==='ASSIGNED' && p.includes('accept_assigned_reservations') && (
-                    <button disabled={busy} onClick={()=>status(b.reference,'ACCEPTED')} className="rounded-lg bg-slate-900 px-3 py-2 text-sm text-white">Accept Reservation</button>
-                  )}
-                  {b.status==='ACCEPTED' && p.includes('confirm_visits') && (
-                    <button disabled={busy} onClick={()=>status(b.reference,'CONFIRMED')} className="rounded-lg bg-slate-900 px-3 py-2 text-sm text-white">Confirm Visit</button>
                   )}
                   {b.status==='CONFIRMED' && p.includes('mark_visits_done') && (
                     <button disabled={busy} onClick={()=>status(b.reference,'DONE')} className="rounded-lg bg-emerald-600 px-3 py-2 text-sm text-white">Mark Done</button>
