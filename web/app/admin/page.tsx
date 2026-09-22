@@ -71,8 +71,13 @@ function AdminEditForm({booking, onClose, onSave, busy}:{booking:any; onClose:()
     try{
       setSaving(true)
       const codes = reservedTests.map(t=>t.code)
+      const adminToken = typeof window !== 'undefined'
+        ? localStorage.getItem('mtb_admin_token')
+        : null
+
       await api(`/bookings/${encodeURIComponent(booking.reference)}`,{
         method:'PUT',
+        headers:adminToken ? {Authorization:`Bearer ${adminToken}`} : undefined,
         body:JSON.stringify({
           ...form,
           age:form.age?Number(form.age):null,
@@ -203,6 +208,8 @@ export default function Admin(){
     setNewBookingResults([])
   }
 
+  const [createdBooking,setCreatedBooking]=useState<any>(null)
+
   async function createBooking(){
     try{
       if(!newBooking.patient_name.trim()||!newBooking.phone.trim()||!newBookingTests.length){
@@ -228,8 +235,9 @@ export default function Admin(){
       setNewBookingTests([])
       setNewBookingQ('')
       setNewBookingResults([])
+      setMsg('')
+      setCreatedBooking(x)
       await loadBookings()
-      setMsg(`Reservation created: ${x.reference}`)
     }catch(e:any){setMsg(e.message)}
     finally{setBusy(false)}
   }
@@ -332,6 +340,31 @@ async function searchCatalog(q:string){setCatalogQ(q);if(!q.trim()){setCatalog([
 
   if(!logged)return <main className="min-h-screen grid place-items-center bg-slate-50 p-4"><div className="w-full max-w-sm rounded-2xl border bg-white p-6 shadow"><h1 className="text-xl font-bold">Admin login</h1><input autoFocus type="password" value={pass} onChange={e=>setPass(e.target.value)} onKeyDown={e=>e.key==='Enter'&&login()} placeholder="Password" className="mt-4 w-full rounded-xl border px-3 py-3"/><button onClick={login} className="mt-3 w-full rounded-xl bg-slate-900 py-3 text-white">Login</button>{msg&&<p className="mt-3 text-sm text-red-700">{msg}</p>}</div></main>
   return <main className="min-h-screen bg-slate-50 p-4"><div className="mx-auto max-w-7xl"><header className="flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-slate-900 p-5 text-white"><div><h1 className="text-2xl font-bold">Booking Lab Admin</h1><p className="text-sm text-slate-300">v{APP_VERSION}</p></div><div className="flex gap-2"><button onClick={load} className="rounded-lg border border-white/20 px-3 py-2">Refresh</button><button onClick={async()=>{try{await api('/logout',{method:'POST'})}finally{localStorage.removeItem('mtb_admin_token');location.reload()}}} className="rounded-lg border border-white/20 px-3 py-2">Logout</button></div></header>{msg&&<div className="mt-4 rounded-xl border bg-white p-3 text-sm">{msg}</div>}
+
+  {createdBooking&&<div className="fixed inset-0 z-[60] grid place-items-center bg-black/50 p-4">
+    <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
+      <h2 className="text-xl font-bold">Reservation created</h2>
+      <p className="mt-2 text-sm text-slate-600">The reservation was created successfully.</p>
+
+      <div className="mt-4 rounded-xl bg-slate-50 p-4">
+        <div className="text-xs text-slate-500">Booking reference</div>
+        <div className="mt-1 text-2xl font-bold tracking-wider">{createdBooking.reference}</div>
+
+        {createdBooking.total!=null&&<div className="mt-3 text-sm">
+          Total: <strong>{createdBooking.total}</strong>
+        </div>}
+      </div>
+
+      <button
+        type="button"
+        onClick={()=>setCreatedBooking(null)}
+        className="mt-5 w-full rounded-xl bg-slate-900 py-3 font-semibold text-white"
+      >
+        Done
+      </button>
+    </div>
+  </div>}
+
   <nav className="mt-4 flex flex-wrap gap-2">{(['bookings','users','commission','catalog','finance','statistics','targets'] as const).map(x=><button key={x} onClick={()=>setTab(x)} className={`rounded-lg px-4 py-2 text-sm font-semibold ${tab===x?'bg-slate-900 text-white':'border bg-white'}`}>{x}</button>)}</nav>
   {tab==='bookings'&&<section className="mt-4 grid gap-3">
     <div className="rounded-2xl border bg-white p-5">
@@ -351,16 +384,20 @@ async function searchCatalog(q:string){setCatalogQ(q);if(!q.trim()){setCatalog([
         onKeyDown={async e=>{
           if(e.key!=='Enter')return
           e.preventDefault()
-          if(newBookingResults.length){
-            addNewBookingTest(newBookingResults[0])
-            return
-          }
+
           const q=newBookingQ.trim()
           if(!q)return
+
           try{
             const x=await api<any>(`/tests?q=${encodeURIComponent(q)}`)
             const first=x.tests?.[0]
-            if(first)addNewBookingTest(first)
+
+            if(first){
+              addNewBookingTest(first)
+              return
+            }
+
+            setMsg('No matching test found.')
           }catch(err:any){
             setMsg(err.message)
           }
@@ -491,6 +528,12 @@ async function searchCatalog(q:string){setCatalogQ(q);if(!q.trim()){setCatalog([
           setCatalogRows(
             parseSheet(wb.Sheets[wb.SheetNames[0]])
           );
+
+          if(!priceListName.trim()){
+            setPriceListName(
+              f.name.replace(/\.(xlsx?|csv)$/i,'').trim()
+            );
+          }
 
           setMsg('Price list parsed. Review then publish.');
         }catch(err:any){
