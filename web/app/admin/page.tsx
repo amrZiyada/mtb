@@ -372,7 +372,7 @@ async function searchCatalog(q:string){setCatalogQ(q);if(!q.trim()){setCatalog([
       <div className="mt-3 grid gap-2 md:grid-cols-2">
         <input value={newBooking.patient_name} onChange={e=>setNewBooking({...newBooking,patient_name:e.target.value})} placeholder="Patient name" className="rounded-lg border px-3 py-2"/>
         <input type="number" value={newBooking.age} onChange={e=>setNewBooking({...newBooking,age:e.target.value})} placeholder="Age" className="rounded-lg border px-3 py-2"/>
-        <select value={newBooking.gender} onChange={e=>setNewBooking({...newBooking,gender:e.target.value})} className="rounded-lg border px-3 py-2"><option value="">Gender</option><option value="MALE">Male</option><option value="FEMALE">Female</option></select>
+        <select value={newBooking.gender} onChange={e=>setNewBooking({...newBooking,gender:e.target.value})} className="rounded-lg border px-3 py-2"><option value="">Gender</option><option value="Male">Male</option><option value="Female">Female</option><option value="Other">Other</option></select>
         <input value={newBooking.phone} onChange={e=>setNewBooking({...newBooking,phone:e.target.value})} placeholder="Phone" className="rounded-lg border px-3 py-2"/>
         <input value={newBooking.address} onChange={e=>setNewBooking({...newBooking,address:e.target.value})} placeholder="Address" className="rounded-lg border px-3 py-2 md:col-span-2"/>
         <input type="datetime-local" value={newBooking.preferred_at} onChange={e=>setNewBooking({...newBooking,preferred_at:e.target.value})} className="rounded-lg border px-3 py-2"/>
