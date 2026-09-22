@@ -240,7 +240,7 @@ app.post('/bookings',async c=>{
   const reference=await newReservationReference(c.env.DB);
  const createdByType=a?.kind==='USER'?a.user!.user_type:'PUBLIC';const creatorId=a?.kind==='USER'?a.user!.id:null
  const s=await settings(c.env.DB);const editHours=Number(s.edit_pending_hours||24);const deadline=new Date(Date.now()+editHours*3600000).toISOString()
- await c.env.DB.prepare(`INSERT INTO bookings(reference,patient_name,age,gender,phone,preferred_at,address,tests_json,total,original_total,price_list_id,status,created_by_user_id,created_by_type,edit_deadline,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)`).bind(reference,String(b.patient_name).trim(),Number(b.age)||null,b.gender||null,String(b.phone).trim(),b.preferred_at||null,b.address||null,JSON.stringify(selected),total,total,priceListId,'PENDING',creatorId,createdByType,deadline).run()
+ await c.env.DB.prepare(`INSERT INTO bookings(reference,patient_name,age,gender,phone,preferred_at,address,tests_json,total,original_total,price_list_id,status,created_by_user_id,created_by_type,edit_deadline,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)`).bind(reference,String(b.patient_name).trim(),Number(b.age)||null,b.gender||null,String(b.phone).trim(),b.preferred_at||null,b.address||null,JSON.stringify(selected),total,total,priceListId,'PENDING',creatorId,createdByType,deadline).run()
  await c.env.DB.prepare(`INSERT INTO booking_status_history(booking_reference,from_status,to_status,changed_by_user_id,changed_by_type) VALUES(?,?,?,?,?)`).bind(reference,null,'PENDING',creatorId,createdByType).run()
  await recomputeBooking(c.env.DB,reference)
  const duplicates=await activeDuplicate(c.env.DB,String(b.patient_name),String(b.phone),reference)

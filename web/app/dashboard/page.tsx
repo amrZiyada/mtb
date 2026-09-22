@@ -489,7 +489,7 @@ const loadBookings=async(q=bookingQ,sort=bookingSort,dir=bookingDir)=>{
             {newBookingResults.length>0&&<div className="mt-2 rounded-lg border">{newBookingResults.map(t=><button type="button" key={t.test_no} onClick={()=>addNewBookingTest(t)} className="block w-full border-b px-3 py-2 text-left last:border-0 hover:bg-slate-50"><b>{t.test_no}</b> · <span dir="auto">{t.analysis_name}</span> · {t.patient_price} EGP</button>)}</div>}
           </div>
           {newBookingTests.length>0&&<div className="mt-3 flex flex-wrap gap-2">{newBookingTests.map(t=><span key={t.test_no} className="rounded-full border px-3 py-1 text-sm">{t.analysis_name} · {t.patient_price} EGP <button type="button" onClick={()=>setNewBookingTests(x=>x.filter(y=>y.test_no!==t.test_no))}>×</button></span>)}</div>}
-          <button disabled={busy} onClick={createBooking} className="mt-4 rounded-lg bg-slate-900 px-4 py-2 text-white">Create reservation</button>
+          <button type="button" disabled={busy} onClick={createBooking} className="mt-4 rounded-lg bg-slate-900 px-4 py-2 text-white disabled:opacity-50">Create reservation</button>
         </section>}
         <section className="mt-5 rounded-2xl border bg-white p-5">
           <div className="flex flex-wrap justify-between gap-3">

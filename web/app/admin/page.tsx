@@ -345,11 +345,33 @@ async function searchCatalog(q:string){setCatalogQ(q);if(!q.trim()){setCatalog([
         <input type="datetime-local" value={newBooking.preferred_at} onChange={e=>setNewBooking({...newBooking,preferred_at:e.target.value})} className="rounded-lg border px-3 py-2"/>
       </div>
       <div className="mt-3">
-        <input value={newBookingQ} onChange={e=>searchNewBookingTests(e.target.value)} placeholder="Search tests to add" className="w-full rounded-lg border px-3 py-2"/>
+        <input
+        value={newBookingQ}
+        onChange={e=>searchNewBookingTests(e.target.value)}
+        onKeyDown={async e=>{
+          if(e.key!=='Enter')return
+          e.preventDefault()
+          if(newBookingResults.length){
+            addNewBookingTest(newBookingResults[0])
+            return
+          }
+          const q=newBookingQ.trim()
+          if(!q)return
+          try{
+            const x=await api<any>(`/tests?q=${encodeURIComponent(q)}`)
+            const first=x.tests?.[0]
+            if(first)addNewBookingTest(first)
+          }catch(err:any){
+            setMsg(err.message)
+          }
+        }}
+        placeholder="Search tests to add"
+        className="w-full rounded-lg border px-3 py-2"
+      />
         {newBookingResults.length>0&&<div className="mt-2 rounded-lg border">{newBookingResults.map(t=><button type="button" key={t.test_no} onClick={()=>addNewBookingTest(t)} className="block w-full border-b px-3 py-2 text-left last:border-0 hover:bg-slate-50"><b>{t.test_no}</b> · <span dir="auto">{t.analysis_name}</span> · {t.patient_price} EGP</button>)}</div>}
       </div>
       {newBookingTests.length>0&&<div className="mt-3 flex flex-wrap gap-2">{newBookingTests.map(t=><span key={t.test_no} className="rounded-full border px-3 py-1 text-sm">{t.analysis_name} · {t.patient_price} EGP <button type="button" onClick={()=>setNewBookingTests(x=>x.filter(y=>y.test_no!==t.test_no))}>×</button></span>)}</div>}
-      <button disabled={busy} onClick={createBooking} className="mt-4 rounded-lg bg-slate-900 px-4 py-2 text-white">Create reservation</button>
+      <button type="button" disabled={busy} onClick={createBooking} className="mt-4 rounded-lg bg-slate-900 px-4 py-2 text-white disabled:opacity-50">Create reservation</button>
     </div>
     <div className="rounded-2xl border bg-white p-4">
       <div className="grid gap-2 md:grid-cols-[1fr_auto_auto_auto]">
@@ -482,6 +504,7 @@ async function searchCatalog(q:string){setCatalogQ(q);if(!q.trim()){setCatalog([
     </p>
 
     <button
+      type="button"
       disabled={!catalogRows.length||!priceListName.trim()||busy}
       onClick={importCatalog}
       className="mt-3 rounded-lg bg-slate-900 px-4 py-2 text-white disabled:opacity-50"
