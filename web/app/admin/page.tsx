@@ -58,6 +58,19 @@ function AdminEditForm({booking, onClose, onSave, busy}:{booking:any; onClose:()
     setError('')
   }
 
+  async function handleTestEnter(){
+    const q=searchQ.trim()
+    if(!q)return
+
+    try{
+      const x=await api<any>(`/admin/tests?q=${encodeURIComponent(q)}`)
+      const first=x.tests?.[0]
+      if(first)addTest(first)
+    }catch(e:any){
+      setError(e.message)
+    }
+  }
+
   function removeTest(code:string){
     setReservedTests(reservedTests.filter(t=>t.code!==code))
   }
@@ -127,6 +140,11 @@ function AdminEditForm({booking, onClose, onSave, busy}:{booking:any; onClose:()
             <input
               value={searchQ}
               onChange={e=>doSearch(e.target.value)}
+              onKeyDown={async e=>{
+                if(e.key!=='Enter'||e.nativeEvent.isComposing)return
+                e.preventDefault()
+                await handleTestEnter()
+              }}
               placeholder="Search test by name or number to add…"
               className="flex-1 rounded-lg border px-3 py-2"
               disabled={isFinalized || isConfirmed}

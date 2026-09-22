@@ -42,7 +42,23 @@ function TestSelector({tests,onChange,status,mode,blockedTests}:{tests:TestItem[
   const addTest=(test:TestItem)=>{
     if(existingCodes.has(test.test_no))return
     onChange([...tests,test])
+    setSearchQuery('')
+    setResults([])
   }
+
+  const handleTestEnter=async()=>{
+    const q=searchQuery.trim()
+    if(!q)return
+
+    try{
+      const x=await api<{tests:TestItem[]}>(`/tests?q=${encodeURIComponent(q)}`)
+      const first=x.tests?.[0]
+      if(first)addTest(first)
+    }catch{
+      // Keep the current selector state unchanged on search failure.
+    }
+  }
+
   const removeTest=(code:string)=>{
     onChange(tests.filter(t=>t.test_no!==code))
   }
@@ -59,6 +75,11 @@ function TestSelector({tests,onChange,status,mode,blockedTests}:{tests:TestItem[
           <input
             value={searchQuery}
             onChange={e=>setSearchQuery(e.target.value)}
+            onKeyDown={async e=>{
+              if(e.key!=='Enter'||e.nativeEvent.isComposing)return
+              e.preventDefault()
+              await handleTestEnter()
+            }}
             placeholder={mode==='extra'?'Type to search extra tests...':'Type to search tests...'}
             className="rounded-lg border px-3 py-2"
           />
@@ -485,7 +506,27 @@ const loadBookings=async(q=bookingQ,sort=bookingSort,dir=bookingDir)=>{
             <input type="datetime-local" value={newBooking.preferred_at} onChange={e=>setNewBooking({...newBooking,preferred_at:e.target.value})} className="rounded-lg border px-3 py-2"/>
           </div>
           <div className="mt-3">
-            <input value={newBookingQ} onChange={e=>searchNewBookingTests(e.target.value)} placeholder="Search tests to add" className="w-full rounded-lg border px-3 py-2"/>
+            <input
+              value={newBookingQ}
+              onChange={e=>searchNewBookingTests(e.target.value)}
+              onKeyDown={async e=>{
+                if(e.key!=='Enter'||e.nativeEvent.isComposing)return
+                e.preventDefault()
+
+                const q=newBookingQ.trim()
+                if(!q)return
+
+                try{
+                  const x=await api<any>(`/tests?q=${encodeURIComponent(q)}`)
+                  const first=x.tests?.[0]
+                  if(first)addNewBookingTest(first)
+                }catch(err:any){
+                  setMsg(err.message)
+                }
+              }}
+              placeholder="Search tests to add"
+              className="w-full rounded-lg border px-3 py-2"
+            />
             {newBookingResults.length>0&&<div className="mt-2 rounded-lg border">{newBookingResults.map(t=><button type="button" key={t.test_no} onClick={()=>addNewBookingTest(t)} className="block w-full border-b px-3 py-2 text-left last:border-0 hover:bg-slate-50"><b>{t.test_no}</b> · <span dir="auto">{t.analysis_name}</span> · {t.patient_price} EGP</button>)}</div>}
           </div>
           {newBookingTests.length>0&&<div className="mt-3 flex flex-wrap gap-2">{newBookingTests.map(t=><span key={t.test_no} className="rounded-full border px-3 py-1 text-sm">{t.analysis_name} · {t.patient_price} EGP <button type="button" onClick={()=>setNewBookingTests(x=>x.filter(y=>y.test_no!==t.test_no))}>×</button></span>)}</div>}
